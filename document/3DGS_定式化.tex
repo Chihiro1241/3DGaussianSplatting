@@ -1,0 +1,1858 @@
+\documentclass[dvipdfmx]{jlreq}
+\usepackage[top=20truemm, bottom=20truemm, left=10truemm, right=10truemm]{geometry}
+\usepackage{amssymb}
+\usepackage{amsmath}
+\usepackage{bm}
+\usepackage{fancyhdr}
+\usepackage{enumitem}
+\usepackage{fancybox}
+\usepackage{here}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+
+\newcommand{\LDSSIM}{\mathcal{L}_{\mathrm{D\text{-}SSIM}}}
+
+\fancypagestyle{plain}{
+  \fancyhf{}
+  \renewcommand{\headrulewidth}{0pt}
+  \renewcommand{\footrulewidth}{0pt}
+  \cfoot{\thepage}
+}
+
+\fancypagestyle{fancy}{
+  \fancyhf{}
+  \lhead{}
+  \rhead{}
+  \renewcommand{\headrulewidth}{0.4pt}
+  \renewcommand{\footrulewidth}{0pt}
+  \cfoot{\thepage}
+}
+
+\begin{document}
+
+\pagestyle{fancy}
+\setlength{\columnseprule}{0.4pt}
+
+\twocolumn[
+  \begin{center}
+    \doublebox{
+      \parbox{.95\textwidth}{
+        \raggedright
+        \normalsize 最終更新日 \today \\
+        \centering
+        \normalsize 吉井研究室 情報チーム \\
+        \vspace{1mm}
+        {\Large \bfseries 3D Gaussian Splatting 定式化} \\
+        \vspace{1mm}
+        \raggedleft
+        \normalsize 学生番号: 1030-38-7683　修士1回生　田中 知優
+      }
+    }
+  \end{center}
+  \vspace{5mm}
+]
+
+\vspace{3mm}
+
+\section{はじめに}
+複数視点から撮影された学習画像（真値画像）と、それぞれのカメラパラメータが与えられているとする。
+3D Gaussian Splatting（3DGS）では、三次元空間内のシーンを複数の3D Gaussian（Gaussian）によって表現し、任意視点から観測される画像を再構成する。
+本稿では、3DGSの定式化について詳しく説明する。
+
+\section{文字の定義}
+本稿では、以下の表記規則を用いる。
+
+\begin{itemize}
+    \item 小文字：スカラー
+    \item 太字の小文字：ベクトル
+    \item 大文字：行列
+\end{itemize}
+
+\begin{table}[H]
+    \centering
+    \begin{tabular}{|c|l|}\hline
+        文字 & 定義 \\ \hline
+        $i$ & Gaussianのインデックス（$i = 1,\ldots,N$） \\
+        $\bm{p}_{w,i}$ & Gaussianの世界座標系における中心位置 \\
+        $\bm{q}_i$ & Gaussianの回転（四元数） \\
+        $\bm{s}_i$ & Gaussianの各軸方向のスケール \\
+        $\bm{h}_i$ & Gaussianの球面調和関数係数 \\
+        $\alpha_i$ & Gaussianの不透明度 \\ \hline
+        $R_{cw}$ & 世界座標系からカメラ座標系への回転行列 \\
+        $\bm{t}_{cw}$ & 世界座標系からカメラ座標系への並進ベクトル \\
+        $f_x,f_y$ & $x,y$方向の焦点距離 \\
+        $c_x,c_y$ & 画像上の主点座標 \\ \hline
+        $j$ & 画素のインデックス（$j = 1,\ldots,N_{\mathrm{pix}}$） \\
+        $\bm{\gamma}_j^{\mathrm{gt}}$ & 真値画像の画素$j$のRGB値 \\
+        $\bm{\gamma}_j$ & レンダリング画像の画素$j$のRGB値 \\ \hline
+    \end{tabular}
+    \caption{本稿で使用する記号の定義}
+    \label{tab:symbol_definitions}
+\end{table}
+
+以下では、表記を簡潔にするため、特に必要な場合を除いてGaussianを表す添字$i$を省略する。
+
+\section{Gaussianの初期化}
+3DGSでは、Structure from Motion（SfM）によって復元された疎な点群を用いて、3D Gaussianを初期化する。
+SfMによって得られた$i$番目の3D点の位置を$\bm{p}^{\mathrm{SfM}}_i$とすると、Gaussianの中心位置は
+\begin{equation}
+    \bm{p}_{\mathrm{w},i} = \bm{p}^{\mathrm{SfM}}_i
+\end{equation}
+と初期化される。
+
+Gaussianの色は、SfM点に対応するRGB値を用いて初期化する。
+具体的には、球面調和関数の0次係数をRGB値に基づいて設定し、それより高次の係数を0とする。
+\footnote{実際に実装する際は、SfM点のRGB値$\bm{c}_i^{\mathrm{SfM}}$に対して$\bm{h}_{i,00} = (\bm{c}_i^{\mathrm{SfM}}-\frac{1}{2}\bm{1})/Y_0^0$と初期化し、それより高次の球面調和係数を$0$とする。}
+
+また、Gaussianのスケールは、周囲のSfM点までの距離に基づいて決定する。
+点群が密な領域では小さなGaussian、疎な領域では大きなGaussianとして初期化する。
+回転は単位回転、不透明度は小さな一定値によって初期化する。
+\footnote{
+実装では、SfM点$i$の近傍3点の集合を$\mathcal{K}_i$とし、近傍点までの平均二乗距離を
+\begin{equation*}
+    d_i^2 = \frac{1}{|\mathcal{K}_i|} \sum_{k\in\mathcal{K}_i}\left\|\bm{p}_i^{\mathrm{SfM}} -\bm{p}_k^{\mathrm{SfM}}\right\|_2^2
+\end{equation*}
+とする。
+初期スケールとそのrawパラメータは
+\begin{equation*}
+    \bm{s}_i = \sqrt{\max\left(d_i^2,10^{-7}\right)}\bm{1}, \qquad \widetilde{\bm{s}}_i =\log\bm{s}_i
+\end{equation*}
+とする。
+また、$\widetilde{\bm{q}}_i=[1,0,0,0]^{\top}$、$\alpha_i=0.1$、$\widetilde{\alpha}_i=\operatorname{logit}(0.1)$と初期化する。
+ここで、$\operatorname{logit}(a)=\log\{a/(1-a)\}$である。
+}
+
+\section{全体の流れ}
+本稿では、Gaussianの総数$N$を固定した場合の学習を扱う。
+3DGSの学習は、以下の手順によって行われる。
+
+\begin{enumerate}
+    \item SfM点群を用いてGaussianを初期化する。
+    \item 現在のGaussianのパラメータを用いて、選択した学習視点の2D画像をレンダリングする。
+    \item レンダリング画像と真値画像を比較し、損失関数を計算する。
+    \item 損失関数を各Gaussianのパラメータについて微分し、勾配を計算する。
+    \item 得られた勾配を用いて、損失関数が小さくなるようにGaussianのパラメータを更新する。
+    \item 所定の反復回数に達するまで、手順2から5を繰り返す。
+\end{enumerate}
+
+\section{順伝播過程}
+本節では、Gaussianのパラメータを用いて、選択した学習視点の2D画像をレンダリングする処理を順伝播と呼ぶ。
+以下では、その定式化について説明する。
+
+\subsection{カメラ座標系における中心位置$\bm{p}_{c}$}
+世界座標系からカメラ座標系への回転行列$R_{cw}$と並進ベクトル$\bm{t}_{cw}$を用いて、
+Gaussianの世界座標における中心位置$\bm{p}_{w}$を、カメラ座標系における中心位置$\bm{p}_{c}$へ変換する。
+この座標変換は、式\eqref{eq:world_to_camera}で表される。
+\begin{equation}
+    \begin{aligned}
+        \bm{p}_{c} &= R_{cw}\left(\bm{p}_{w}-\bm{c}_w\right) \\
+        &= R_{cw}\bm{p}_{w}-R_{cw}\bm{c}_w \\
+        &= R_{cw}\bm{p}_{w}+\bm{t}_{cw}
+    \end{aligned}
+    \label{eq:world_to_camera}
+\end{equation}
+ここで、$\bm{c}_w$は世界座標系におけるカメラの中心位置であり、
+並進ベクトル$\bm{t}_{cw}$との間には
+$\bm{t}_{cw}=-R_{cw}\bm{c}_w$の関係がある。
+
+\subsection{$\bm{p}_{c}$を画像平面上に投影した座標$\bm{u}$}
+カメラ座標系におけるGaussianの中心位置を
+$\bm{p}_{c}=[x,y,z]^\top$とする。
+カメラ内部パラメータ$f_x,f_y,c_x,c_y$を用いると、
+$\bm{p}_{c}$を画像平面上に投影した座標$\bm{u}$は、
+式\eqref{eq:perspective_projection}で表される。
+\begin{equation}
+    \bm{u} = \begin{bmatrix} f_x\dfrac{x}{z}+c_x \\[1.5ex] f_y\dfrac{y}{z}+c_y \end{bmatrix}
+    \label{eq:perspective_projection}
+\end{equation}
+
+\subsection{Gaussianの共分散行列$\Sigma$}
+Gaussianの3D共分散行列$\Sigma$は、行列の各成分を直接保持するのではなく、回転を表す単位クォータニオン$\bm{q}$と、各軸方向のスケール$\bm{s}$から構成する。
+この共分散行列は、式\eqref{eq:covariance_3d}で表される。
+\begin{equation}
+    \begin{aligned}
+        \Sigma &= \Sigma(\bm{q},\bm{s}) = RSS^{\top}R^{\top}, \\
+        \bm{\sigma}
+        &= \begin{bmatrix}
+            \Sigma_{00} & \Sigma_{01} & \Sigma_{02} &
+            \Sigma_{11} & \Sigma_{12} & \Sigma_{22}
+        \end{bmatrix}^{\top}
+    \end{aligned}
+    \label{eq:covariance_3d}
+\end{equation}
+ここで、$R$は単位クォータニオン
+$\bm{q}=[q_w,q_x,q_y,q_z]^{\top}$
+に対応する回転行列であり、
+式\eqref{eq:quaternion_rotation_matrix}で表される。
+\begin{equation}
+    R = \begin{bmatrix}
+        1-2(q_y^2+q_z^2) & 2(q_xq_y-q_zq_w) & 2(q_xq_z+q_yq_w) \\
+        2(q_xq_y+q_zq_w) & 1-2(q_x^2+q_z^2) & 2(q_yq_z-q_xq_w) \\
+        2(q_xq_z-q_yq_w) & 2(q_yq_z+q_xq_w) & 1-2(q_x^2+q_y^2)
+    \end{bmatrix}
+    \label{eq:quaternion_rotation_matrix}
+\end{equation}
+また、$S$はスケールベクトル
+$\bm{s}=[s_0,s_1,s_2]^{\top}$
+を対角成分に持つ行列であり、
+式\eqref{eq:scale_matrix}で表される。
+\begin{equation}
+    S= \begin{bmatrix} s_0 & 0 & 0 \\ 0 & s_1 & 0 \\ 0 & 0 & s_2 \end{bmatrix}
+    \label{eq:scale_matrix}
+\end{equation}
+
+式\eqref{eq:covariance_3d}は$\Sigma=AA^{\top}$（ただし、$A=RS$）という形であるため、$\Sigma$は対称半正定値行列となる。
+また、$\Sigma$は対称行列であるため、実装では重複しない上三角の6要素を中間表現としてベクトル$\bm{\sigma}$に格納する。
+
+\subsection{画像上の2D共分散$\Sigma^{\prime}$}
+3D共分散$\Sigma$を画像平面上に投影した2D共分散$\Sigma^{\prime}$は、透視投影を$\bm{p}_c$の周りで線形近似することで、式\eqref{eq:covariance_2d}のように求められる。
+\begin{equation}
+    \begin{aligned}
+        \Sigma^{\prime} &= J R_{cw}\Sigma R_{cw}^{\top}J^{\top}, \\
+        \bm{\sigma}^{\prime}
+        &= \begin{bmatrix}
+            \Sigma^{\prime}_{00} &
+            \Sigma^{\prime}_{01} &
+            \Sigma^{\prime}_{11}
+        \end{bmatrix}^{\top}
+    \end{aligned}
+    \label{eq:covariance_2d}
+\end{equation}
+ここで、$J$は投影座標$\bm{u}$の$\bm{p}_c=[x,y,z]^{\top}$に関するヤコビ行列であり、式\eqref{eq:projection_jacobian}で表される。
+\begin{equation}
+    J
+    = \frac{\partial\bm{u}}{\partial\bm{p}_c}
+    = \begin{bmatrix}
+        \dfrac{f_x}{z} & 0 & -\dfrac{f_x x}{z^2} \\[1.5ex]
+        0 & \dfrac{f_y}{z} & -\dfrac{f_y y}{z^2}
+    \end{bmatrix}
+    \label{eq:projection_jacobian}
+\end{equation}
+
+\subsection{球面調和関数による色$\bm{c}$}
+3DGSでは、視点によって変化するGaussianの色を球面調和関数によって表現する。
+理論上、RGB値$\bm{c}$は式\eqref{eq:sh_color_theory}で計算される。\footnotemark
+\begin{equation}
+    \bm{c}(\bm{r},\bm{h})
+    = \sum_{l=0}^{l_{\max}} \sum_{m=-l}^{l}
+    \bm{h}_{lm}Y_l^m(\bm{r})
+    \label{eq:sh_color_theory}
+\end{equation}
+\footnotetext{一方、実装では、球面調和関数の出力に$0.5$を加えた後、RGB値の各成分を非負に制限する。
+この処理は式\eqref{eq:sh_color_implementation}で表される。
+\begin{equation}
+    \widetilde{\bm{c}} = \sum_{l=0}^{l_{\max}} \sum_{m=-l}^{l} \bm{h}_{lm}Y_l^m(\bm{r}), \quad 
+    \bm{c} = \max\left(\bm{0},\widetilde{\bm{c}}+\frac{1}{2}\bm{1}\right)
+    \label{eq:sh_color_implementation}
+\end{equation}}ここで、$\bm{r}$はカメラ位置$\bm{c}_w$からGaussianの中心位置$\bm{p}_w$へ向かう単位方向ベクトルであり、式\eqref{eq:view_direction}で表される。
+\begin{equation}
+    \bm{r} = \frac{\bm{p}_w-\bm{c}_w} {\left\lVert\bm{p}_w-\bm{c}_w\right\rVert}
+    \label{eq:view_direction}
+\end{equation}
+$\bm{h}_{lm}\in\mathbb{R}^3$はRGB各成分に対応する球面調和係数、$Y_l^m(\bm{r})$は$l$次$m$番目の実球面調和基底関数、$l_{\max}$は球面調和関数の最大次数である。
+
+\subsection{レンダリング画像の画素色$\bm{\gamma}_j$}
+これまでに得られた情報を用いて、レンダリング画像の画素$j$のRGB値$\bm{\gamma}_j$を計算する。画素に重なるGaussianの集合を$\mathcal{N}_j$とする。
+また、画素$j$においてGaussian $k$がGaussian $i$より手前にあることを$k\prec_j i$と表し、背景色は黒とする。
+このとき、$\bm{\gamma}_j$は式\eqref{eq:pixel_color}で表される。
+\begin{equation}
+    \bm{\gamma}_j = \sum_{i\in\mathcal{N}_j}\tau_{ij}\alpha_{ij}^{\prime}\bm{c}_i
+    \label{eq:pixel_color}
+\end{equation}
+ここで、$\bm{c}_i$は$i$番目のGaussianのRGB値、$\alpha_{ij}^{\prime}$は画素$j$における$i$番目のGaussianの不透明度である。
+$\alpha_{ij}^{\prime}$は、式\eqref{eq:pixel_opacity}で計算される。
+\begin{equation}
+    \alpha_{ij}^{\prime} = \alpha_i \exp\left(-\frac{1}{2}(\bm{x}_j-\bm{u}_i)^{\top}\Sigma_i^{\prime-1}(\bm{x}_j-\bm{u}_i)\right)
+    \label{eq:pixel_opacity}
+\end{equation}
+ここで、$\alpha_i$はGaussianが保持する不透明度、$\bm{u}_i$は画像上に投影されたGaussianの中心、$\bm{x}_j$は画素$j$の座標である。
+また、$\Sigma_i^{\prime}$は$\bm{\sigma}_i^{\prime}$から復元した2D共分散行列である。$\bm{x}_j$と$\bm{u}_i$のマハラノビス距離が小さいほど、$\alpha_{ij}^{\prime}$は大きくなる。
+
+$\tau_{ij}$は、画素$j$において、$i$番目のGaussianより手前にあるGaussianを透過した割合であり、式\eqref{eq:transmittance}で計算される。
+\begin{equation}
+    \tau_{ij} = \prod_{\substack{k\in\mathcal{N}_j\\k\prec_j i}} \left(1-\alpha_{kj}^{\prime}\right)
+    \label{eq:transmittance}
+\end{equation}
+積を取るGaussianが存在しない場合、空積の定義より最も手前にあるGaussianの透過率は$1$となる。
+したがって、手前のGaussianの不透明度が大きいほど、奥にあるGaussianの色の寄与は小さくなる。
+
+2D共分散行列を
+\begin{equation}
+    \Sigma_i^{\prime} = \begin{bmatrix} a_i & b_i \\ b_i & c_i \end{bmatrix}
+    \label{eq:covariance_2d_components}
+\end{equation}
+とすると、その逆行列は式\eqref{eq:inverse_2d_covariance}で表される。
+\begin{equation}
+    \Sigma_i^{\prime-1} = \frac{1}{a_i c_i-b_i^2} \begin{bmatrix} c_i & -b_i \\ -b_i & a_i \end{bmatrix}
+    \label{eq:inverse_2d_covariance}
+\end{equation}
+ここで、$a_i$、$b_i$、$c_i$は2D共分散行列$\Sigma_i^{\prime}$の重複しない3成分である。
+
+\section{損失関数}
+順伝播によって得られたレンダリング画像と真値画像の差を評価するため、3DGSの学習に用いる全体の損失関数$\mathcal{L}$は、$L_1$損失とD-SSIM損失の加重和として、式\eqref{eq:total_loss}で表される。
+\begin{equation}
+    \mathcal{L} = (1-\lambda)\mathcal{L}_1 + \lambda\LDSSIM
+    \label{eq:total_loss}
+\end{equation}
+ここで、$\lambda\in[0,1]$は二つの損失の重みを調整するハイパーパラメータである。
+\footnote{実際に実装する際は、$\lambda=0.2$を用いる。}
+$\lambda$を大きくすると画像の構造的な類似度が、小さくすると画素ごとのRGB値の一致が重視される。
+
+\subsection{$L_1$損失}
+$L_1$損失は、レンダリング画像と真値画像における各画素のRGB値の絶対誤差を平均したものである。
+レンダリング画像の画素$j$のRGB値を$\bm{\gamma}_j$、真値画像の画素$j$のRGB値を$\bm{\gamma}_j^{\mathrm{gt}}$とすると、$L_1$損失$\mathcal{L}_1$は式\eqref{eq:l1_loss}で表される。
+\begin{equation}
+    \mathcal{L}_1 = \frac{1}{3N_{\mathrm{pix}}}\sum_{j=1}^{N_{\mathrm{pix}}}\left\lVert\bm{\gamma}_j-\bm{\gamma}_j^{\mathrm{gt}}\right\rVert_1
+    \label{eq:l1_loss}
+\end{equation}
+ここで、$N_{\mathrm{pix}}$は画像の総画素数であり、係数$3$はRGBの3チャネルに対応する。
+また、RGBベクトル$\bm{\gamma}=[\gamma_R,\gamma_G,\gamma_B]^{\top}$の$L_1$ノルムは、
+\begin{equation}
+    \left\lVert\bm{\gamma}\right\rVert_1 = |\gamma_R|+|\gamma_G|+|\gamma_B|
+    \label{eq:l1_norm}
+\end{equation}
+で定義される。
+したがって、$\mathcal{L}_1$が小さいほど、レンダリング画像の各画素のRGB値が真値画像のRGB値に近いことを表す。
+
+\subsection{D-SSIM損失}
+$L_1$損失は各画素のRGB値を個別に比較するため、画像内の明るさ、コントラスト、構造といった局所的な特徴を直接評価することはできない。
+そこで、3DGSでは、画像の局所的な構造の類似度を評価するSSIMを併用する。
+
+レンダリング画像の画素$j$を中心とする局所領域を$\bm{P}_j$、それに対応する真値画像の局所領域を$\bm{P}_j^{\mathrm{gt}}$とすると、両者のSSIMは式\eqref{eq:ssim}で表される。
+\begin{equation}
+    \operatorname{SSIM}(\bm{P}_j,\bm{P}_j^{\mathrm{gt}}) = \frac{ (2\mu_x\mu_y+C_1) (2\sigma_{xy}+C_2) }{ (\mu_x^2+\mu_y^2+C_1) (\sigma_x^2+\sigma_y^2+C_2) }
+    \label{eq:ssim}
+\end{equation}
+ここで、両局所領域$\bm{P}_j,\bm{P}_j^{\mathrm{gt}}$の要素をそれぞれ$x_k,\,y_k$とし、$\mu_x$および$\mu_y$は各局所領域の加重平均、$\sigma_x^2$および$\sigma_y^2$は加重分散、$\sigma_{xy}$は加重共分散である。
+これらは、重みの総和が$1$となる局所窓の重み$w_k$
+\footnote{実際に実装する際は、大きさ$11\times11$、標準偏差$1.5$の正規化された2次元ガウス窓を用いる。この窓をRGB各チャネルに対して独立に畳み込み、画像端には幅$5$のゼロパディングを適用する。得られたSSIMを全画素およびRGB全チャネルについて平均し、画像全体のSSIMとする。}
+を用いて、式\eqref{eq:ssim_statistics}で計算される。
+\begin{equation}
+    \begin{aligned}
+        \mu_x &= \sum_k w_k x_k, & \mu_y &= \sum_k w_k y_k, \\
+        \sigma_x^2 &= \sum_k w_k(x_k-\mu_x)^2, & \sigma_y^2 &= \sum_k w_k(y_k-\mu_y)^2, \\
+        \sigma_{xy} &= \sum_k w_k (x_k-\mu_x)(y_k-\mu_y)
+    \end{aligned}
+    \label{eq:ssim_statistics}
+\end{equation}
+また、$C_1$および$C_2$は、分母が極端に小さくなって計算が不安定になることを防ぐための定数であり、
+\begin{equation}
+    C_1=(K_1L)^2, \qquad C_2=(K_2L)^2
+    \label{eq:ssim_constants}
+\end{equation}
+と定義される。
+ここで、$L$は画素値のダイナミックレンジであり、RGB値を$[0,1]$に正規化する場合は$L=1$である。
+\footnote{実装する際は、$K_1=0.01$、$K_2=0.03$を用いる。}
+
+画像全体のSSIMは、各画素およびRGB各チャネルについて計算したSSIMの平均として求める。
+SSIMは値が大きいほど二つの画像が類似していることを表すため、損失関数として最小化できるように、D-SSIM損失を式\eqref{eq:dssim_loss}で定義する。
+\begin{equation}
+    \LDSSIM = 1-\operatorname{SSIM}\left( \bm{\gamma}, \bm{\gamma}^{\mathrm{gt}} \right)
+    \label{eq:dssim_loss}
+\end{equation}
+したがって、レンダリング画像と真値画像の構造が類似するほど$\LDSSIM$は小さくなる。
+
+\section{逆伝播過程}
+\label{sec:backward}
+本節では、レンダリング画像と真値画像から計算された損失を、各Gaussianの学習パラメータへ逆向きに伝播させる過程を説明する。この過程を逆伝播過程と呼ぶ。
+
+\subsection{連鎖律とヤコビ行列}
+$i$番目のGaussianが保持する学習パラメータを
+\begin{equation}
+    \bm{\theta}_i = \begin{bmatrix} \bm{p}_{w,i}^{\top} & \bm{q}_i^{\top} & \bm{s}_i^{\top} & \alpha_i & \bm{h}_i^{\top} \end{bmatrix}^{\top}
+    \label{eq:gaussian_parameters}
+\end{equation}
+とする。
+すべてのGaussianの学習パラメータをまとめたものを$\bm{\theta}$とすると、3DGSの学習は、式\eqref{eq:optimization_problem}の最適化問題として表される。
+\begin{equation}
+    \bm{\theta}^{*} = \underset{\bm{\theta}}{\operatorname{argmin}}\, \mathcal{L}\left( \bm{\gamma}(\bm{\theta}), \bm{\gamma}^{\mathrm{gt}} \right)
+    \label{eq:optimization_problem}
+\end{equation}
+ここで、$\bm{\gamma}(\bm{\theta})$は学習パラメータ$\bm{\theta}$を用いてレンダリングされた画像、$\bm{\gamma}^{\mathrm{gt}}$は真値画像である。
+
+学習パラメータを更新するためには、各パラメータに関する損失関数の勾配を求める必要がある。
+損失関数$\mathcal{L}$はスカラーであるため、$\bm{\theta}_i$に関する微分は勾配$\nabla_{\bm{\theta}_i}\mathcal{L}$となる。この勾配は、各パラメータを微小に変化させたときに、損失がどの方向へどの程度変化するかを表す。
+
+したがって、連鎖律により$\bm{\theta}_i$に関する損失の勾配はそれぞれ以下の式\eqref{eq:rotation_gradient_chain}--\eqref{eq:position_gradient_chain}のようになる。
+
+\subsubsection*{回転を表すクォータニオン$\bm{q}_i$に関する勾配}
+\begin{equation}
+    \frac{\partial\mathcal{L}}{\partial\bm{q}_i}
+    = \sum_j
+    \frac{\partial\mathcal{L}}{\partial\bm{\gamma}_j}
+    \frac{\partial\bm{\gamma}_j}{\partial\bm{\sigma}_i^{\prime}}
+    \frac{\partial\bm{\sigma}_i^{\prime}}{\partial\bm{\sigma}_i}
+    \frac{\partial\bm{\sigma}_i}{\partial\bm{q}_i}
+    \label{eq:rotation_gradient_chain}
+\end{equation}
+
+\subsubsection*{スケール$\bm{s}_i$に関する勾配}
+\begin{equation}
+    \frac{\partial\mathcal{L}}{\partial\bm{s}_i}
+    = \sum_j
+    \frac{\partial\mathcal{L}}{\partial\bm{\gamma}_j}
+    \frac{\partial\bm{\gamma}_j}{\partial\bm{\sigma}_i^{\prime}}
+    \frac{\partial\bm{\sigma}_i^{\prime}}{\partial\bm{\sigma}_i}
+    \frac{\partial\bm{\sigma}_i}{\partial\bm{s}_i}
+    \label{eq:scale_gradient_chain}
+\end{equation}
+
+\subsubsection*{球面調和係数$\bm{h}_i$に関する勾配}
+\begin{equation}
+    \frac{\partial\mathcal{L}}{\partial\bm{h}_i}
+    = \sum_j
+    \frac{\partial\mathcal{L}}{\partial\bm{\gamma}_j}
+    \frac{\partial\bm{\gamma}_j}{\partial\bm{c}_i}
+    \frac{\partial\bm{c}_i}{\partial\bm{h}_i}
+    \label{eq:sh_gradient_chain}
+\end{equation}
+
+\subsubsection*{不透明度$\alpha_i$に関する勾配}
+\begin{equation}
+    \frac{\partial\mathcal{L}}{\partial\alpha_i}
+    = \sum_j
+    \frac{\partial\mathcal{L}}{\partial\bm{\gamma}_j}
+    \frac{\partial\bm{\gamma}_j}{\partial\alpha_i}
+    \label{eq:opacity_gradient_chain}
+\end{equation}
+
+\subsubsection*{中心位置$\bm{p}_{w,i}$に関する勾配}
+\begin{align}
+    \frac{\partial\mathcal{L}}{\partial\bm{p}_{w,i}}
+    ={}&
+    \sum_j
+    \frac{\partial\mathcal{L}}{\partial\bm{\gamma}_j}
+    \frac{\partial\bm{\gamma}_j}{\partial\bm{u}_i}
+    \frac{\partial\bm{u}_i}{\partial\bm{p}_{c,i}}
+    \frac{\partial\bm{p}_{c,i}}{\partial\bm{p}_{w,i}}
+    \notag\\
+    &+
+    \sum_j
+    \frac{\partial\mathcal{L}}{\partial\bm{\gamma}_j}
+    \frac{\partial\bm{\gamma}_j}{\partial\bm{c}_i}
+    \frac{\partial\bm{c}_i}{\partial\bm{r}_i}
+    \frac{\partial\bm{r}_i}{\partial\bm{p}_{w,i}}
+    \notag\\
+    &+
+    \sum_j
+    \frac{\partial\mathcal{L}}{\partial\bm{\gamma}_j}
+    \frac{\partial\bm{\gamma}_j}{\partial\bm{\sigma}_i^{\prime}}
+    \frac{\partial\bm{\sigma}_i^{\prime}}{\partial\bm{p}_{c,i}}
+    \frac{\partial\bm{p}_{c,i}}{\partial\bm{p}_{w,i}}
+    \label{eq:position_gradient_chain}
+\end{align}
+
+なお、損失関数の画素色$\bm{\gamma}_j$に関する偏導関数$\partial\mathcal{L}/\partial\bm{\gamma}_j$は、PyTorchの自動微分によって計算するため、本稿では導出を省略する。
+
+\subsection{座標変換および投影の偏導関数}
+本小節では、カメラ座標$\bm{p}_{c,i}$および投影中心$\bm{u}_i$をそれぞれ$\bm{p}_{w,i},\,\bm{p}_{c,i}$について微分し、以下のヤコビ行列を導出する。
+\begin{equation*}
+    \frac{\partial\bm{p}_{c,i}}{\partial\bm{p}_{w,i}}, \quad \frac{\partial\bm{u}_i}{\partial\bm{p}_{c,i}}
+\end{equation*}
+
+式\eqref{eq:world_to_camera}より、世界座標系からカメラ座標系への変換は
+\begin{equation}
+    \bm{p}_{c,i}=R_{cw}\bm{p}_{w,i}+\bm{t}_{cw}
+    \label{eq:backward_world_to_camera}
+\end{equation}
+である。
+$R_{cw}$および$\bm{t}_{cw}$は固定されたカメラパラメータであるため、
+\begin{equation}
+    \frac{\partial\bm{p}_{c,i}}{\partial\bm{p}_{w,i}}=R_{cw}
+    \label{eq:backward_world_to_camera_jacobian}
+\end{equation}
+となる。
+
+次に、$\bm{p}_{c,i}=[x_i,y_i,z_i]^{\top}$とすると、式\eqref{eq:perspective_projection}より、投影中心は
+\begin{equation}
+    \bm{u}_i=
+    \begin{bmatrix}
+        f_x x_i/z_i+c_x \\
+        f_y y_i/z_i+c_y
+    \end{bmatrix}
+    \label{eq:backward_perspective_projection}
+\end{equation}
+と表される。
+したがって、$\bm{u}_i$の$\bm{p}_{c,i}$に関するヤコビ行列は
+\begin{equation}
+    \frac{\partial\bm{u}_i}{\partial\bm{p}_{c,i}} = J_i
+    =\begin{bmatrix}
+        \dfrac{f_x}{z_i} & 0 & -\dfrac{f_x x_i}{z_i^2} \\[1.5ex]
+        0 & \dfrac{f_y}{z_i} & -\dfrac{f_y y_i}{z_i^2}
+    \end{bmatrix}
+    \label{eq:backward_projection_jacobian}
+\end{equation}
+となる。
+
+\subsection{3D共分散の偏導関数}
+本小節では、3D共分散$\bm{\sigma}_i$を$\bm{q}_i,\,\bm{s}_i$について微分し、以下のヤコビ行列を導出する。
+\begin{equation*}
+    \frac{\partial\bm{\sigma}_i}{\partial\bm{q}_i}, \quad \frac{\partial\bm{\sigma}_i}{\partial\bm{s}_i}
+\end{equation*}
+
+式\eqref{eq:covariance_3d}より、3D共分散行列は
+\begin{equation}
+    \Sigma_i = R_iD_iR_i^{\top}, \qquad D_i = S_iS_i^{\top} = \operatorname{diag}\left(s_{i,0}^2,s_{i,1}^2,s_{i,2}^2\right)
+    \label{eq:backward_3d_covariance}
+\end{equation}
+と表される。
+
+クォータニオンの成分を$q_{i,k}$（$k\in\{w,x,y,z\}$）とする。
+$D_i$は$\bm{q}_i$に依存しないため、積の微分法より
+\begin{equation}
+    \frac{\partial\Sigma_i}{\partial q_{i,k}} = \frac{\partial R_i}{\partial q_{i,k}} D_iR_i^{\top} + R_iD_i \left(\frac{\partial R_i}{\partial q_{i,k}}\right)^{\top}
+    \label{eq:covariance_quaternion_matrix_derivative}
+\end{equation}
+となる。
+
+ここで、式\eqref{eq:quaternion_rotation_matrix}を各クォータニオン成分について偏微分すると、
+\begin{equation}
+    \frac{\partial R_i}{\partial q_{i,w}} =
+    2\begin{bmatrix}
+        0 & -q_{i,z} & q_{i,y} \\
+        q_{i,z} & 0 & -q_{i,x} \\
+        -q_{i,y} & q_{i,x} & 0
+    \end{bmatrix}
+    \label{eq:rotation_qw_jacobian}
+\end{equation}
+\begin{equation}
+    \frac{\partial R_i}{\partial q_{i,x}}
+    =
+    2\begin{bmatrix}
+        0 & q_{i,y} & q_{i,z} \\
+        q_{i,y} & -2q_{i,x} & -q_{i,w} \\
+        q_{i,z} & q_{i,w} & -2q_{i,x}
+    \end{bmatrix}
+    \label{eq:rotation_qx_jacobian}
+\end{equation}
+\begin{equation}
+    \frac{\partial R_i}{\partial q_{i,y}}
+    =
+    2\begin{bmatrix}
+        -2q_{i,y} & q_{i,x} & q_{i,w} \\
+        q_{i,x} & 0 & q_{i,z} \\
+        -q_{i,w} & q_{i,z} & -2q_{i,y}
+    \end{bmatrix}
+    \label{eq:rotation_qy_jacobian}
+\end{equation}
+\begin{equation}
+    \frac{\partial R_i}{\partial q_{i,z}}
+    =
+    2\begin{bmatrix}
+        -2q_{i,z} & -q_{i,w} & q_{i,x} \\
+        q_{i,w} & -2q_{i,z} & q_{i,y} \\
+        q_{i,x} & q_{i,y} & 0
+    \end{bmatrix}
+    \label{eq:rotation_qz_jacobian}
+\end{equation}
+を得る。
+
+各$q_{i,k}$について式\eqref{eq:covariance_quaternion_matrix_derivative}を計算し、得られた行列の上三角6要素を式\eqref{eq:covariance_3d}における$\bm{\sigma}_i$と同じ順序で並べることで、$\partial\bm{\sigma}_i/\partial q_{i,k}$が得られる。
+したがって、求めるヤコビ行列は
+\begin{equation}
+    \frac{\partial\bm{\sigma}_i}{\partial\bm{q}_i}
+    =
+    \begin{bmatrix}
+        \dfrac{\partial\bm{\sigma}_i}{\partial q_{i,w}} &
+        \dfrac{\partial\bm{\sigma}_i}{\partial q_{i,x}} &
+        \dfrac{\partial\bm{\sigma}_i}{\partial q_{i,y}} &
+        \dfrac{\partial\bm{\sigma}_i}{\partial q_{i,z}}
+    \end{bmatrix}
+    \label{eq:covariance_quaternion_jacobian}
+\end{equation}
+となる。
+
+次に、$\bm{e}_k$を第$k$成分のみが$1$である3次元標準基底ベクトルとする。このとき、
+\begin{equation}
+    \frac{\partial D_i}{\partial s_{i,k}} = 2s_{i,k}\bm{e}_k\bm{e}_k^{\top}, \qquad k\in\{0,1,2\}
+    \label{eq:scale_squared_matrix_derivative}
+\end{equation}
+である。したがって、
+\begin{equation}
+    \frac{\partial\Sigma_i}{\partial s_{i,k}} = 2s_{i,k} R_i\bm{e}_k\bm{e}_k^{\top}R_i^{\top}
+    \label{eq:covariance_scale_matrix_derivative}
+\end{equation}
+となる。
+
+各$s_{i,k}$について式\eqref{eq:covariance_scale_matrix_derivative}を計算し、
+得られた行列の上三角6要素を式\eqref{eq:covariance_3d}における$\bm{\sigma}_i$と同じ順序で並べることで、
+$\partial\bm{\sigma}_i/\partial s_{i,k}$が得られる。
+したがって、求めるヤコビ行列は
+\begin{equation}
+    \frac{\partial\bm{\sigma}_i}{\partial\bm{s}_i}
+    =
+    \begin{bmatrix}
+        \dfrac{\partial\bm{\sigma}_i}{\partial s_{i,0}} &
+        \dfrac{\partial\bm{\sigma}_i}{\partial s_{i,1}} &
+        \dfrac{\partial\bm{\sigma}_i}{\partial s_{i,2}}
+    \end{bmatrix}
+    \label{eq:covariance_scale_jacobian}
+\end{equation}
+となる。
+
+\subsection{2D共分散の偏導関数}
+本小節では、2D共分散$\bm{\sigma}_i^{\prime}$を$\bm{\sigma}_i,\,\bm{p}_{c,i}$について微分し、以下のヤコビ行列を導出する。
+\begin{equation*}
+    \frac{\partial\bm{\sigma}_i^{\prime}}{\partial\bm{\sigma}_i}, \quad \frac{\partial\bm{\sigma}_i^{\prime}}{\partial\bm{p}_{c,i}}
+\end{equation*}
+
+式\eqref{eq:covariance_2d}に対して、
+\begin{equation}
+    C_i=R_{cw}\Sigma_iR_{cw}^{\top}
+    \label{eq:camera_covariance_definition}
+\end{equation}
+とおくと、2D共分散行列は
+\begin{equation}
+    \Sigma_i^{\prime}=J_iC_iJ_i^{\top}
+    \label{eq:backward_2d_covariance}
+\end{equation}
+と表される。
+
+まず、$\bm{\sigma}_i$の第$r$成分について考える。
+式\eqref{eq:covariance_3d}より、$\Sigma_i$は$\bm{\sigma}_i$の各成分を対応する上三角要素および下三角要素に配置した対称行列である。
+したがって、
+\begin{equation}
+    \frac{\partial\Sigma_i^{\prime}}{\partial[\bm{\sigma}_i]_r} = J_iR_{cw} \frac{\partial\Sigma_i}{\partial[\bm{\sigma}_i]_r} R_{cw}^{\top}J_i^{\top}, \qquad r\in\{0,\ldots,5\}
+    \label{eq:projected_covariance_3d_component_derivative}
+\end{equation}
+となる。
+
+各$r$について式\eqref{eq:projected_covariance_3d_component_derivative}を計算し、
+得られた行列の上三角3要素を式\eqref{eq:covariance_2d}における$\bm{\sigma}_i^{\prime}$と同じ順序で並べることで、
+$\partial\bm{\sigma}_i^{\prime}/\partial[\bm{\sigma}_i]_r$が得られる。
+したがって、求めるヤコビ行列の第$r$列は
+\begin{equation}
+    \left[\frac{\partial\bm{\sigma}_i^{\prime}}{\partial\bm{\sigma}_i}\right]_{:,r} = \frac{\partial\bm{\sigma}_i^{\prime}}{\partial[\bm{\sigma}_i]_r}, \qquad r\in\{0,\ldots,5\}
+    \label{eq:projected_covariance_3d_jacobian}
+\end{equation}
+となる。
+
+次に、$\bm{p}_{c,i}=[x_i,y_i,z_i]^{\top}$の第$k$成分に関する$J_i$の偏導関数を$J_{i,k}$とする。
+式\eqref{eq:backward_projection_jacobian}より、
+\begin{equation}
+    J_{i,0} =\frac{\partial J_i}{\partial x_i} =
+    \begin{bmatrix}
+        0 & 0 & -f_x/z_i^2 \\
+        0 & 0 & 0
+    \end{bmatrix}
+    \label{eq:projection_jacobian_x_derivative}
+\end{equation}
+\begin{equation}
+    J_{i,1} =\frac{\partial J_i}{\partial y_i} =
+    \begin{bmatrix}
+        0 & 0 & 0 \\
+        0 & 0 & -f_y/z_i^2
+    \end{bmatrix}
+    \label{eq:projection_jacobian_y_derivative}
+\end{equation}
+および
+\begin{equation}
+    J_{i,2} =\frac{\partial J_i}{\partial z_i} =
+    \begin{bmatrix}
+        -f_x/z_i^2 & 0 & 2f_xx_i/z_i^3 \\
+        0 & -f_y/z_i^2 & 2f_yy_i/z_i^3
+    \end{bmatrix}
+    \label{eq:projection_jacobian_z_derivative}
+\end{equation}
+を得る。
+
+$C_i$は$\bm{p}_{c,i}$に依存しないため、積の微分法より
+\begin{equation}
+    \frac{\partial\Sigma_i^{\prime}}{\partial[\bm{p}_{c,i}]_k} = J_{i,k}C_iJ_i^{\top} + J_iC_iJ_{i,k}^{\top}, \qquad k\in\{0,1,2\}
+    \label{eq:projected_covariance_position_matrix_derivative}
+\end{equation}
+となる。
+
+各$k$について式\eqref{eq:projected_covariance_position_matrix_derivative}を計算し、
+得られた行列の上三角3要素を式\eqref{eq:covariance_2d}における$\bm{\sigma}_i^{\prime}$と同じ順序で並べることで、
+$\partial\bm{\sigma}_i^{\prime}/\partial[\bm{p}_{c,i}]_k$が得られる。
+したがって、求めるヤコビ行列の第$k$列は
+\begin{equation}
+    \left[\frac{\partial\bm{\sigma}_i^{\prime}}{\partial\bm{p}_{c,i}}\right]_{:,k} = \frac{\partial\bm{\sigma}_i^{\prime}}{\partial[\bm{p}_{c,i}]_k}, \qquad k\in\{0,1,2\}
+    \label{eq:projected_covariance_position_jacobian}
+\end{equation}
+となる。
+
+\subsection{色の偏導関数}
+本小節では、Gaussianの色$\bm{c}_i$を$\bm{h}_i,\,\bm{p}_{w,i}$について微分し、以下のヤコビ行列を導出する。
+\begin{equation*}
+    \frac{\partial\bm{c}_i}{\partial\bm{h}_i}, \quad \frac{\partial\bm{c}_i}{\partial\bm{p}_{w,i}}
+\end{equation*}
+
+式\eqref{eq:sh_color_theory}より、Gaussian $i$の色は
+\begin{equation}
+    \bm{c}_i = \sum_{l=0}^{l_{\max}}\sum_{m=-l}^{l}\bm{h}_{i,lm}Y_l^m(\bm{r}_i)
+    \label{eq:backward_sh_color}
+\end{equation}
+と表される。
+
+まず、$\bm{c}_i$を球面調和係数$\bm{h}_{i,lm}$について偏微分すると、
+\begin{equation}
+    \frac{\partial\bm{c}_i}{\partial\bm{h}_{i,lm}} = Y_l^m(\bm{r}_i)I_3
+    \label{eq:color_sh_component_jacobian}
+\end{equation}
+となる。
+\footnote{式\eqref{eq:sh_color_implementation}の実装式を用いる場合、非負制約によって$0$に切り詰められたRGB成分の勾配も$0$となる。}
+
+$\bm{h}_i$を、各球面調和係数$\bm{h}_{i,lm}\in\mathbb{R}^3$を一つのベクトルに並べたものとすると、求めるヤコビ行列は
+\begin{equation}
+    \frac{\partial\bm{c}_i}{\partial\bm{h}_i} =
+    \begin{bmatrix}
+        Y_0^0(\bm{r}_i)I_3 &
+        \cdots &
+        Y_l^m(\bm{r}_i)I_3 &
+        \cdots &
+        Y_{l_{\max}}^{l_{\max}}(\bm{r}_i)I_3
+    \end{bmatrix}
+    \label{eq:color_sh_coefficient_jacobian}
+\end{equation}
+となる。ただし、各ブロックは、$\bm{h}_i$における球面調和係数の並び順に配置する。
+
+次に、$\bm{c}_i$の$\bm{p}_{w,i}$に関するヤコビ行列を求める。
+式\eqref{eq:view_direction}より、
+\begin{equation}
+    \bm{r}_i = \frac{\bm{p}_{w,i}-\bm{c}_w}{\left\lVert\bm{p}_{w,i}-\bm{c}_w\right\rVert_2}
+    \label{eq:backward_view_direction}
+\end{equation}
+である。単位ベクトルの微分より、
+\begin{equation}
+    \frac{\partial\bm{r}_i}{\partial\bm{p}_{w,i}} =\frac{I_3-\bm{r}_i\bm{r}_i^{\top}}{\left\lVert\bm{p}_{w,i}-\bm{c}_w\right\rVert_2}
+    \label{eq:view_direction_position_jacobian}
+\end{equation}
+となる。
+
+また、式\eqref{eq:backward_sh_color}を$\bm{r}_i$について偏微分すると、
+\begin{equation}
+    \frac{\partial\bm{c}_i}{\partial\bm{r}_i} = \sum_{l=0}^{l_{\max}}\sum_{m=-l}^{l}\bm{h}_{i,lm} \left\{\nabla_{\bm{r}_i}Y_l^m(\bm{r}_i)\right\}^{\top}
+    \label{eq:color_view_direction_jacobian}
+\end{equation}
+となる。
+
+したがって、連鎖律より、$\bm{c}_i$の$\bm{p}_{w,i}$に関するヤコビ行列は
+\begin{equation}
+    \begin{aligned}
+        \frac{\partial\bm{c}_i}{\partial\bm{p}_{w,i}}
+        &=
+        \frac{\partial\bm{c}_i}{\partial\bm{r}_i} \frac{\partial\bm{r}_i}{\partial\bm{p}_{w,i}} \\
+        &=
+        \frac{1}{\left\lVert\bm{p}_{w,i}-\bm{c}_w\right\rVert_2} \frac{\partial\bm{c}_i}{\partial\bm{r}_i} \left(I_3-\bm{r}_i\bm{r}_i^{\top}\right)
+    \end{aligned}
+    \label{eq:color_world_position_jacobian}
+\end{equation}
+となる。
+
+\subsection{画素色の偏導関数}
+本小節では、画素色$\bm{\gamma}_j$を$\alpha_i,\,\bm{c}_i,\,\bm{u}_i,\,\bm{\sigma}_i^{\prime}$について微分し、以下のヤコビ行列を導出する。
+\begin{equation*}
+    \frac{\partial\bm{\gamma}_j}{\partial\alpha_i}, \quad \frac{\partial\bm{\gamma}_j}{\partial\bm{c}_i}, \quad \frac{\partial\bm{\gamma}_j}{\partial\bm{u}_i}, \quad \frac{\partial\bm{\gamma}_j}{\partial\bm{\sigma}_i^{\prime}}
+\end{equation*}
+
+画素色の計算式を以下に示す。
+\begin{equation}
+    \bm{\gamma}_j = \sum_{i\in\mathcal{N}_j}\tau_{ij}\alpha_{ij}^{\prime}\bm{c}_i
+    \label{eq:pixel_color_backward}
+\end{equation}
+\begin{equation}
+    \tau_{ij} = \prod_{\substack{k\in\mathcal{N}_j\\k\prec_j i}}\left(1-\alpha_{kj}^{\prime}\right)
+    \label{eq:transmittance_backward}
+\end{equation}
+
+まず、$\alpha_{ij}^{\prime}$に関する偏導関数を求める。
+$\alpha_{ij}^{\prime}$はGaussian $i$自身の色だけでなく、それより奥にあるGaussianの透過率にも影響するため、式\eqref{eq:pixel_color_backward}を直接微分するのは煩雑である。
+そこで、本小節に限り、画素$j$に重なるGaussianをカメラから近い順に$1,\ldots,M_j$と付け直し、画素色の合成式を以下の再帰形式に書き直す。
+\begin{equation}
+    \begin{aligned}
+        \bm{\gamma}_{M_j+1,j} &=\bm{0},\\
+        \bm{\gamma}_{M_j,j} &= \alpha_{M_jj}^{\prime}\bm{c}_{M_j} + \left(1-\alpha_{M_jj}^{\prime}\right)\bm{\gamma}_{M_j+1,j},\\
+        &\ \vdots\\
+        \bm{\gamma}_{2,j} &= \alpha_{2j}^{\prime}\bm{c}_2 + \left(1-\alpha_{2j}^{\prime}\right) \bm{\gamma}_{3,j},\\
+        \bm{\gamma}_{1,j} &= \alpha_{1j}^{\prime}\bm{c}_1 + \left(1-\alpha_{1j}^{\prime}\right) \bm{\gamma}_{2,j},\\
+        \bm{\gamma}_j &=\bm{\gamma}_{1,j}
+    \end{aligned}
+    \label{eq:recursive_pixel_color}
+\end{equation}
+ここで、$\bm{\gamma}_{i,j}$は、深度順で$i$番目から$M_j$番目までのGaussianのみを合成した画素$j$の色を表す。
+
+式\eqref{eq:recursive_pixel_color}より、$\bm{\gamma}_{i,j}$の$\alpha_{ij}^{\prime}$に関する偏導関数は
+\begin{equation}
+    \frac{\partial\bm{\gamma}_{i,j}}{\partial\alpha_{ij}^{\prime}} = \bm{c}_i-\bm{\gamma}_{i+1,j}
+    \label{eq:recursive_color_opacity_jacobian}
+\end{equation}
+となる。
+
+また、$\bm{\gamma}_j$の$\bm{\gamma}_{i,j}$に関するヤコビ行列は
+\begin{equation}
+    \begin{aligned}
+        \frac{\partial\bm{\gamma}_j}{\partial\bm{\gamma}_{i,j}} &= \prod_{k=1}^{i-1}\left(1-\alpha_{kj}^{\prime}\right)I_3\\
+        &= \tau_{ij}I_3
+    \end{aligned}
+    \label{eq:pixel_color_recursive_jacobian}
+\end{equation}
+となる。
+したがって、連鎖律より、$\bm{\gamma}_j$の$\alpha_{ij}^{\prime}$に関する偏導関数は
+\begin{equation}
+    \frac{\partial\bm{\gamma}_j}{\partial\alpha_{ij}^{\prime}} = \tau_{ij}\left(\bm{c}_i-\bm{\gamma}_{i+1,j}\right)
+    \label{eq:pixel_color_screen_opacity_jacobian}
+\end{equation}
+となる。
+
+一方、$\bm{c}_i$はGaussian $i$自身の項にのみ現れるため、$\bm{\gamma}_j$の$\bm{c}_i$に関するヤコビ行列は
+\begin{equation}
+    \frac{\partial\bm{\gamma}_j}{\partial\bm{c}_i} = \tau_{ij}\alpha_{ij}^{\prime}I_3
+    \label{eq:pixel_color_color_jacobian}
+\end{equation}
+となる。
+
+次に、$\alpha_{ij}^{\prime}$を$\alpha_i$、$\bm{u}_i$および$\bm{\sigma}_i^{\prime}$について微分する。
+式\eqref{eq:pixel_opacity}より、
+\begin{equation}
+    \begin{aligned}
+        \alpha_{ij}^{\prime} &= \alpha_i\exp\left(-\frac{1}{2}(\bm{u}_i-\bm{x}_j)^{\top}\Sigma_i^{\prime-1}(\bm{u}_i-\bm{x}_j)\right)\\
+        &\equiv \alpha_i g_{ij}
+    \end{aligned}
+    \label{eq:screen_opacity_backward}
+\end{equation}
+と表される。
+
+2D共分散行列とその逆行列を
+\begin{equation}
+    \Sigma_i^{\prime} = \begin{bmatrix} a_i & b_i \\ b_i & c_i \end{bmatrix}, \qquad \Sigma_i^{\prime-1} = \begin{bmatrix} \omega_{i,0}^{\prime} & \omega_{i,1}^{\prime}\\ \omega_{i,1}^{\prime} & \omega_{i,2}^{\prime} \end{bmatrix}
+    \label{eq:screen_covariance_inverse_components}
+\end{equation}
+とする。
+また、それぞれの重複しない上三角成分を
+\begin{equation}
+    \bm{\sigma}_i^{\prime} = \begin{bmatrix} a_i & b_i & c_i \end{bmatrix}^{\top}, \qquad
+    \bm{\omega}_i^{\prime} = \begin{bmatrix} \omega_{i,0}^{\prime} & \omega_{i,1}^{\prime} & \omega_{i,2}^{\prime} \end{bmatrix}^{\top}
+    \label{eq:screen_covariance_vectors}
+\end{equation}
+とする。
+
+さらに、
+\begin{equation}
+    \bm{d}_{ij} = \bm{u}_i-\bm{x}_j = \begin{bmatrix} d_{ij,0} & d_{ij,1} \end{bmatrix}^{\top}
+    \label{eq:pixel_displacement_backward}
+\end{equation}
+とおくと、$g_{ij}$は
+\begin{equation}
+    \begin{aligned}
+        g_{ij} &= \exp\left(-\frac{1}{2}\bm{d}_{ij}^{\top}\Sigma_i^{\prime-1}\bm{d}_{ij}\right)\\
+        &= \exp\left(-\frac{1}{2}\omega_{i,0}^{\prime}d_{ij,0}^2-\omega_{i,1}^{\prime}d_{ij,0}d_{ij,1}-\frac{1}{2}\omega_{i,2}^{\prime}d_{ij,1}^2\right)
+    \end{aligned}
+    \label{eq:gaussian_weight_backward}
+\end{equation}
+と表される。
+
+式\eqref{eq:screen_opacity_backward}より、$\alpha_{ij}^{\prime}$の$\alpha_i$に関する偏導関数は
+\begin{equation}
+    \frac{\partial\alpha_{ij}^{\prime}}{\partial\alpha_i} = g_{ij}
+    \label{eq:screen_opacity_parameter_derivative}
+\end{equation}
+となる。
+
+また、$g_{ij}$を$\bm{u}_i$について偏微分すると、
+\begin{equation}
+    \frac{\partial g_{ij}}{\partial\bm{u}_i} =
+    \begin{bmatrix}
+        -\omega_{i,0}^{\prime}d_{ij,0} -\omega_{i,1}^{\prime}d_{ij,1} &
+        -\omega_{i,1}^{\prime}d_{ij,0} -\omega_{i,2}^{\prime}d_{ij,1}
+    \end{bmatrix}
+    g_{ij}
+    \label{eq:gaussian_weight_position_jacobian}
+\end{equation}
+を得る。
+したがって、
+\begin{equation}
+    \frac{\partial\alpha_{ij}^{\prime}}{\partial\bm{u}_i} = \alpha_i \frac{\partial g_{ij}}{\partial\bm{u}_i}
+    \label{eq:screen_opacity_position_jacobian}
+\end{equation}
+となる。
+
+次に、$g_{ij}$を$\bm{\omega}_i^{\prime}$について偏微分すると、
+\begin{equation}
+    \frac{\partial g_{ij}}{\partial\bm{\omega}_i^{\prime}} =
+    \begin{bmatrix}
+        -\dfrac{1}{2}d_{ij,0}^2 & -d_{ij,0}d_{ij,1} & -\dfrac{1}{2}d_{ij,1}^2
+    \end{bmatrix}
+    g_{ij}
+    \label{eq:gaussian_weight_inverse_covariance_jacobian}
+\end{equation}
+となる。
+
+ここで、
+\begin{equation}
+    \Delta_i=a_ic_i-b_i^2
+    \label{eq:screen_covariance_determinant}
+\end{equation}
+とおくと、式\eqref{eq:inverse_2d_covariance}より、
+\begin{equation}
+    \bm{\omega}_i^{\prime} = \frac{1}{\Delta_i} \begin{bmatrix} c_i & -b_i & a_i \end{bmatrix}^{\top}
+    \label{eq:inverse_covariance_vector}
+\end{equation}
+である。
+したがって、$\bm{\omega}_i^{\prime}$の$\bm{\sigma}_i^{\prime}$に関するヤコビ行列は
+\begin{equation}
+    \frac{\partial\bm{\omega}_i^{\prime}}{\partial\bm{\sigma}_i^{\prime}} =
+    \frac{1}{\Delta_i^2}
+    \begin{bmatrix}
+        -c_i^2 & 2b_ic_i & -b_i^2\\
+        b_ic_i & -(a_ic_i+b_i^2) & a_ib_i\\
+        -b_i^2 & 2a_ib_i & -a_i^2
+    \end{bmatrix}
+    \label{eq:inverse_covariance_jacobian}
+\end{equation}
+となる。
+よって、連鎖律より、
+\begin{equation}
+    \frac{\partial\alpha_{ij}^{\prime}}{\partial\bm{\sigma}_i^{\prime}} = \alpha_i \frac{\partial g_{ij}}{\partial\bm{\omega}_i^{\prime}} \frac{\partial\bm{\omega}_i^{\prime}}{\partial\bm{\sigma}_i^{\prime}}
+    \label{eq:screen_opacity_covariance_jacobian}
+\end{equation}
+を得る。
+
+以上の結果を連鎖律によって合成する。
+まず、$\bm{\gamma}_j$の$\alpha_i$に関する偏導関数は
+\begin{equation}
+    \begin{aligned}
+        \frac{\partial\bm{\gamma}_j}{\partial\alpha_i}
+        &=
+        \frac{\partial\bm{\gamma}_j}{\partial\alpha_{ij}^{\prime}} \frac{\partial\alpha_{ij}^{\prime}}{\partial\alpha_i}\\
+        &=
+        \tau_{ij} \left(\bm{c}_i-\bm{\gamma}_{i+1,j}\right) g_{ij}
+    \end{aligned}
+    \label{eq:pixel_color_opacity_parameter_jacobian}
+\end{equation}
+となる。
+
+次に、$\bm{\gamma}_j$の$\bm{u}_i$に関するヤコビ行列は
+\begin{equation}
+    \begin{aligned}
+        \frac{\partial\bm{\gamma}_j}{\partial\bm{u}_i} &=
+        \frac{\partial\bm{\gamma}_j}{\partial\alpha_{ij}^{\prime}} \frac{\partial\alpha_{ij}^{\prime}}{\partial\bm{u}_i}\\
+        &= \tau_{ij} \left(\bm{c}_i-\bm{\gamma}_{i+1,j}\right) \alpha_i \frac{\partial g_{ij}}{\partial\bm{u}_i}
+    \end{aligned}
+    \label{eq:pixel_color_position_jacobian}
+\end{equation}
+となる。
+
+同様に、$\bm{\gamma}_j$の
+$\bm{\sigma}_i^{\prime}$に関するヤコビ行列は
+\begin{equation}
+    \begin{aligned}
+        \frac{\partial\bm{\gamma}_j}{\partial\bm{\sigma}_i^{\prime}} &= \frac{\partial\bm{\gamma}_j}{\partial\alpha_{ij}^{\prime}} \frac{\partial\alpha_{ij}^{\prime}}{\partial\bm{\sigma}_i^{\prime}}\\
+        &= \tau_{ij} \left(\bm{c}_i-\bm{\gamma}_{i+1,j}\right) \alpha_i \frac{\partial g_{ij}}{\partial\bm{\omega}_i^{\prime}} \frac{\partial\bm{\omega}_i^{\prime}}{\partial\bm{\sigma}_i^{\prime}}
+    \end{aligned}
+    \label{eq:pixel_color_covariance_jacobian}
+\end{equation}
+となる。
+
+以上より、画素色$\bm{\gamma}_j$に関する偏導関数が得られた。
+
+なお、$i\notin\mathcal{N}_j$の場合、以上の偏導関数はいずれも$\bm{0}$となる。
+
+\section{パラメータの更新}
+逆伝播によって求めた勾配を用いて、各Gaussianのパラメータを更新する。
+学習対象となるパラメータ$\bm{\theta}_i$は、式\eqref{eq:gaussian_parameters}で定義したものとする。
+各パラメータは、損失関数$\mathcal{L}$が小さくなる方向へ反復的に更新される。勾配降下法による基本的な更新式は、
+\begin{equation}
+    \bm{\theta}_i^{(t+1)} = \bm{\theta}_i^{(t)} - \eta \left(\frac{\partial\mathcal{L}}{\partial\bm{\theta}_i}\right)^{\top}
+    \label{eq:gradient_descent_update}
+\end{equation}
+である。
+\footnote{本稿では、$\partial\mathcal{L}/\partial\bm{\theta}_i$を$\bm{\theta}_i$に関する偏導関数を並べた行ベクトルとして扱う。そのため、列ベクトルである$\bm{\theta}_i$を更新する際には、その転置を用いる。}
+ここで、$t$は更新回数、$\eta$は学習率である。実際の学習では、各パラメータに異なる学習率を設定し、Adamなどの最適化手法を用いて更新する。
+\footnote{実装時に学習するrawパラメータとレンダリング時の変換については、小節\ref{sec:parameter_transformation}に示す。}
+
+\section{評価指標}
+評価指標にはPSNR（Peak Signal-to-Noise Ratio）を用いる。
+PSNRは、レンダリング画像と真値画像の画素値誤差に基づいて画質を評価する指標である。
+
+$n$番目のテスト画像におけるMSE（Mean Squared Error）を
+\begin{equation}
+    \operatorname{MSE}_n = \frac{1}{3N_{\mathrm{pix}}} \sum_{j=1}^{N_{\mathrm{pix}}} \left\|\bm{\gamma}_{n,j} - \bm{\gamma}_{n,j}^{\mathrm{gt}}\right\|_2^2
+    \label{eq:mse}
+\end{equation}
+と定義する。
+ここで、$N_{\mathrm{pix}}$は画像の総画素数、$\bm{\gamma}_{n,j}$は$n$番目のレンダリング画像における画素$j$のRGB値、$\bm{\gamma}_{n,j}^{\mathrm{gt}}$は対応する真値画像のRGB値である。
+
+このとき、$n$番目のテスト画像のPSNRは
+\begin{equation}
+    \operatorname{PSNR}_n = 10\log_{10} \left(\frac{I_{\max}^2}{\operatorname{MSE}_n}\right)
+    \label{eq:psnr}
+\end{equation}
+と定義される。
+ここで、$I_{\max}$は画素値の最大値である。RGB値のダイナミックレンジを$[0,1]$とする\footnote{評価指標を計算する際は、レンダリング画像の各RGB値を$[0,1]$にクリップする。ただし、学習時の損失関数はクリップ前のレンダリング画像から計算する。}ため、$I_{\max}=1$である。
+PSNRの単位は$\mathrm{dB}$であり、値が大きいほど、レンダリング画像と真値画像の画素値誤差が小さいことを表す。
+
+各テスト画像についてPSNRを計算し、それらの算術平均をモデルの評価値とする。
+テスト画像の枚数を$N_{\mathrm{test}}$とすると、平均PSNRは
+\begin{equation}
+    \overline{\operatorname{PSNR}} = \frac{1}{N_{\mathrm{test}}} \sum_{n=1}^{N_{\mathrm{test}}} \operatorname{PSNR}_n
+    \label{eq:mean_psnr}
+\end{equation}
+と定義される。
+
+
+
+\appendix
+
+\section{予備知識}
+\label{sec:preliminaries}
+
+\subsection{実球面調和関数}
+\label{sec:real_spherical_harmonics}
+本稿では、以下の実球面調和基底関数を使用する。
+単位方向ベクトルを
+\begin{equation}
+    \bm{r}
+    =
+    \begin{bmatrix}
+        x & y & z
+    \end{bmatrix}^{\mathsf{T}},
+    \qquad
+    x^2+y^2+z^2=1
+\end{equation}
+とする。
+
+以下に$l=0,\ldots,3$における実球面調和基底関数を示す。
+\subsubsection*{$l=0$}
+\begin{equation}
+    Y_0^0(\bm{r}) = \frac{1}{2}\sqrt{\frac{1}{\pi}}
+\end{equation}
+
+\subsubsection*{$l=1$}
+\begin{equation}
+\begin{aligned}
+    Y_1^{-1}(\bm{r}) &= -\sqrt{\frac{3}{4\pi}}\,y, \\
+    Y_1^0(\bm{r}) &= \sqrt{\frac{3}{4\pi}}\,z, \\
+    Y_1^1(\bm{r}) &= -\sqrt{\frac{3}{4\pi}}\,x
+\end{aligned}
+\end{equation}
+
+\subsubsection*{$l=2$}
+\begin{equation}
+\begin{aligned}
+    Y_2^{-2}(\bm{r}) &= \frac{1}{2}\sqrt{\frac{15}{\pi}}\,xy, \\
+    Y_2^{-1}(\bm{r}) &= -\frac{1}{2}\sqrt{\frac{15}{\pi}}\,yz, \\
+    Y_2^0(\bm{r}) &= \frac{1}{4}\sqrt{\frac{5}{\pi}} \left(3z^2-1\right), \\
+    Y_2^1(\bm{r}) &= -\frac{1}{2}\sqrt{\frac{15}{\pi}}\,xz, \\
+    Y_2^2(\bm{r}) &= \frac{1}{4}\sqrt{\frac{15}{\pi}} \left(x^2-y^2\right)
+\end{aligned}
+\end{equation}
+
+\subsubsection*{$l=3$}
+\begin{equation}
+\begin{aligned}
+    Y_3^{-3}(\bm{r}) &= -\frac{1}{4}\sqrt{\frac{35}{2\pi}}\, y\left(3x^2-y^2\right), \\
+    Y_3^{-2}(\bm{r}) &= \frac{1}{2}\sqrt{\frac{105}{\pi}}\, xyz, \\
+    Y_3^{-1}(\bm{r}) &= -\frac{1}{4}\sqrt{\frac{21}{2\pi}}\, y\left(5z^2-1\right), \\
+    Y_3^0(\bm{r}) &= \frac{1}{4}\sqrt{\frac{7}{\pi}}\, z\left(5z^2-3\right), \\
+    Y_3^1(\bm{r}) &= -\frac{1}{4}\sqrt{\frac{21}{2\pi}}\, x\left(5z^2-1\right), \\
+    Y_3^2(\bm{r}) &= \frac{1}{4}\sqrt{\frac{105}{\pi}}\, z\left(x^2-y^2\right), \\
+    Y_3^3(\bm{r}) &= -\frac{1}{4}\sqrt{\frac{35}{2\pi}}\, x\left(x^2-3y^2\right)
+\end{aligned}
+\label{eq:real_sh_degree_3}
+\end{equation}
+
+\section{初期実装の仕様}
+\label{sec:implementation_details}
+
+\subsection{実装方針}
+初期実装はPythonおよびPyTorchを用いて行う。
+Gaussianの中心位置および球面調和係数と、スケール、不透明度およびクォータニオンのrawパラメータを\texttt{torch.nn.Parameter}として保持する。
+順伝播および損失関数はPyTorchのテンソル演算によって実装し、損失関数の各学習パラメータに関する勾配はPyTorchの自動微分によって計算する。
+
+第\ref{sec:backward}節で導出した偏導関数は、自動微分によって得られた勾配の妥当性を検証するために使用し、初期実装では逆伝播を個別に実装しない。
+
+初期実装ではGaussianの総数$N$を固定し、適応的密度制御、不透明度のリセットおよび球面調和関数の次数を段階的に増加させる処理は行わない。
+また、処理速度よりも数式との一致および勾配の検証を優先する。
+
+\subsection{学習パラメータと変換}
+\label{sec:parameter_transformation}
+理論式では、Gaussian $i$のパラメータを
+\begin{equation}
+    \bm{\theta}_i = \begin{bmatrix} \bm{p}_{w,i}^{\top} & \bm{q}_i^{\top} & \bm{s}_i^{\top} & \alpha_i & \bm{h}_i^{\top} \end{bmatrix}^{\top}
+\end{equation}
+と定義した。
+
+一方、実装では、スケールおよび不透明度の有効範囲を保証し、
+クォータニオンを単位クォータニオンに制約するため、
+それぞれのrawパラメータ
+$\widetilde{\bm{s}}_i\in\mathbb{R}^3$、
+$\widetilde{\alpha}_i\in\mathbb{R}$および
+$\widetilde{\bm{q}}_i\in\mathbb{R}^4$を学習する。
+したがって、実装上の学習パラメータを
+\begin{equation}
+    \widetilde{\bm{\theta}}_i = \begin{bmatrix} \bm{p}_{w,i}^{\top} & \widetilde{\bm{q}}_i^{\top} & \widetilde{\bm{s}}_i^{\top} & \widetilde{\alpha}_i & \bm{h}_i^{\top} \end{bmatrix}^{\top}
+    \label{eq:raw_gaussian_parameters}
+\end{equation}
+と定義する。
+
+レンダリングに使用するスケール、不透明度およびクォータニオンは、rawパラメータから
+\begin{equation}
+    \bm{s}_i = \exp\left(\widetilde{\bm{s}}_i\right), \quad \alpha_i = \operatorname{sigmoid} \left(\widetilde{\alpha}_i\right), \quad \bm{q}_i = \frac{\widetilde{\bm{q}}_i}{\max\left(\left\|\widetilde{\bm{q}}_i\right\|_2,\varepsilon_q\right)}
+    \label{eq:raw_parameter_transformations}
+\end{equation}
+によって計算する。
+ここで、指数関数は$\widetilde{\bm{s}}_i$の各成分に適用し、$\varepsilon_q$はゼロ除算を防ぐための定数である。
+初期実装では、$\varepsilon_q=10^{-8}$とする。
+
+中心位置$\bm{p}_{w,i}$および球面調和係数$\bm{h}_i$には変換を適用せず、その値をそのままレンダリングに使用する。
+実装では、$\bm{p}_{w,i}$、$\widetilde{\bm{q}}_i$、$\widetilde{\bm{s}}_i$、$\widetilde{\alpha}_i$および$\bm{h}_i$を\texttt{torch.nn.Parameter}として保持する。
+
+式\eqref{eq:raw_parameter_transformations}を含む順伝播をPyTorchのテンソル演算によって実装することで、損失関数のrawパラメータに関する勾配はPyTorchの自動微分によって計算される。
+
+\subsection{Gaussianの初期化}
+SfMによって得られた点群を
+\begin{equation}
+    \mathcal{P}_{\mathrm{SfM}} = \left\{\left(\bm{p}_i^{\mathrm{SfM}},\bm{c}_i^{\mathrm{SfM}}\right)\right\}_{i=1}^{N}
+\end{equation}
+とする。
+ここで、$\bm{p}_i^{\mathrm{SfM}}\in\mathbb{R}^3$はSfM点の位置、$\bm{c}_i^{\mathrm{SfM}}\in[0,1]^3$は対応するRGB値である。
+SfM点1点につき一つのGaussianを生成するため、初期Gaussian数はSfM点数$N$と等しい。
+
+\subsubsection*{中心位置の初期化}
+Gaussian $i$の中心位置は、対応するSfM点の位置を用いて
+\begin{equation}
+    \bm{p}_{w,i} = \bm{p}_i^{\mathrm{SfM}}
+    \label{eq:implementation_position_initialization}
+\end{equation}
+と初期化する。
+
+\subsubsection*{スケールの初期化}
+Gaussian $i$に対応するSfM点から最も近い3点のインデックス集合を$\mathcal{K}_i$とする。
+近傍点までの平均二乗距離を
+\begin{equation}
+    d_i^2 = \frac{1}{|\mathcal{K}_i|} \sum_{k\in\mathcal{K}_i} \left\|\bm{p}_i^{\mathrm{SfM}} -\bm{p}_k^{\mathrm{SfM}}\right\|_2^2
+    \label{eq:initial_neighbor_distance}
+\end{equation}
+と定義する。
+
+Gaussian $i$の初期スケールを
+\begin{equation}
+    \bm{s}_i = \sqrt{\max\left(d_i^2,\varepsilon_s\right)}\bm{1}, \qquad \varepsilon_s=10^{-7}
+    \label{eq:initial_gaussian_scale}
+\end{equation}
+とする。
+したがって、学習対象となるrawスケールは
+\begin{equation}
+    \widetilde{\bm{s}}_i = \log\bm{s}_i = \frac{1}{2} \log\left\{\max\left(d_i^2,\varepsilon_s\right)\right\}\bm{1}
+    \label{eq:initial_raw_scale}
+\end{equation}
+と初期化する。ここで、対数関数はベクトルの各成分に適用する。
+
+\subsubsection*{回転の初期化}
+Gaussianの初期回転を単位回転とするため、rawクォータニオンを
+\begin{equation}
+    \widetilde{\bm{q}}_i = \begin{bmatrix} 1 & 0 & 0 & 0 \end{bmatrix}^{\mathsf T}
+    \label{eq:initial_raw_quaternion}
+\end{equation}
+と初期化する。クォータニオンの成分順序は$[q_w,q_x,q_y,q_z]^{\mathsf T}$とする。
+
+\subsubsection*{不透明度の初期化}
+Gaussianの初期不透明度を
+\begin{equation}
+    \alpha_i = \alpha_{\mathrm{init}},\qquad \alpha_{\mathrm{init}}=0.1
+    \label{eq:initial_opacity}
+\end{equation}
+とする。
+したがって、raw不透明度は
+\begin{equation}
+    \widetilde{\alpha}_i = \operatorname{logit} \left(\alpha_{\mathrm{init}}\right) = \log \left(\frac{\alpha_{\mathrm{init}}}{1-\alpha_{\mathrm{init}}}\right)
+    \label{eq:initial_raw_opacity}
+\end{equation}
+と初期化する。
+$\alpha_{\mathrm{init}}=0.1$の場合、$\widetilde{\alpha}_i\simeq-2.1972$である。
+
+\subsubsection*{球面調和係数の初期化}
+0次の実球面調和基底関数を
+\begin{equation}
+    Y_0^0 = \frac{1}{2\sqrt{\pi}} \simeq 0.282095
+\end{equation}
+とする。
+式\eqref{eq:sh_color_implementation}において、初期状態のGaussianの色が$\bm{c}_i^{\mathrm{SfM}}$と一致するように、0次の球面調和係数を
+\begin{equation}
+    \bm{h}_{i,00} = \frac{ \bm{c}_i^{\mathrm{SfM}} - \dfrac{1}{2}\bm{1}}{Y_0^0}
+    \label{eq:initial_sh_dc}
+\end{equation}
+と初期化する。それより高次の球面調和係数は
+\begin{equation}
+    \bm{h}_{i,lm} = \bm{0}, \qquad l\geq1
+    \label{eq:initial_sh_rest}
+\end{equation}
+とする。
+
+球面調和係数は、次数$l$の昇順かつ各次数について$m=-l,\ldots,l$の昇順に並べる。
+$(l,m)$に対応する係数のインデックスを
+\begin{equation}
+    b(l,m) = l^2+l+m
+\end{equation}
+とする。
+このとき、$l_{\max}=3$の場合、Gaussian一つ当たりの球面調和係数の個数は
+\begin{equation}
+    N_{\mathrm{SH}} = \left(l_{\max}+1\right)^2 = 16
+\end{equation}
+である。
+
+\subsubsection*{パラメータの保持形式}
+以上の初期値を用いて、学習パラメータを次の形状の
+\texttt{torch.nn.Parameter}として保持する。
+\begin{equation*}
+    \begin{aligned}
+        \bm{P}_w
+        &\in\mathbb{R}^{N\times3},
+        &
+        \widetilde{\bm{Q}}
+        &\in\mathbb{R}^{N\times4},
+        &
+        \widetilde{\bm{S}}
+        &\in\mathbb{R}^{N\times3},\\
+        \widetilde{\bm{A}}
+        &\in\mathbb{R}^{N\times1},
+        &
+        \bm{H}
+        &\in\mathbb{R}^{N\times N_{\mathrm{SH}}\times3}
+    \end{aligned}
+\end{equation*}
+ここで、各テンソルの第1次元はGaussianのインデックスに対応する。
+$\bm{H}$の第2次元には、$b(l,m)$の順序で球面調和係数を格納し、第3次元にはRGB各成分の係数を格納する。
+
+\subsection{Gaussianの描画範囲と深度ソート}
+\label{sec:rendering_range_and_sorting}
+
+2D Gaussianは理論上、画像平面全体に非零の値を持つ。
+しかし、すべてのGaussianについて画像全体の画素値を計算すると、計算量が大きくなる。
+そこで、初期実装では、各Gaussianの描画範囲を有限の領域に制限する。
+
+\subsubsection*{描画対象となるGaussian}
+Gaussian $i$のカメラ座標を
+\begin{equation}
+    \bm{p}_{c,i} = \begin{bmatrix} x_i & y_i & z_i \end{bmatrix}^{\mathsf T}
+\end{equation}
+とする。
+カメラの後方に存在するGaussianは画像平面上に投影できないため、
+\begin{equation}
+    z_i>0
+    \label{eq:visible_depth_condition}
+\end{equation}
+を満たすGaussianのみを描画対象とする。
+
+また、Gaussianの投影中心$\bm{u}_i$および描画範囲が画像領域と交差しない場合、そのGaussianを描画対象から除外する。
+
+\subsubsection*{画像平面上の描画半径}
+数値安定化を適用したGaussian $i$の描画用2D共分散行列を
+\begin{equation}
+    \Sigma_{i,\mathrm{render}}^{\prime} =
+    \begin{bmatrix}
+        a_i & b_i\\
+        b_i & c_i
+    \end{bmatrix}
+\end{equation}
+とする。
+$\Sigma_{i,\mathrm{render}}^{\prime}$の計算方法は、小節\ref{sec:covariance_stabilization}に示す。
+
+$\Sigma_{i,\mathrm{render}}^{\prime}$の最大固有値は
+\begin{equation}
+    \lambda_{i,\max} = \frac{a_i+c_i+ \sqrt{(a_i-c_i)^2+4b_i^2}}{2}
+    \label{eq:maximum_2d_covariance_eigenvalue}
+\end{equation}
+である。
+初期実装では、Gaussianの中心から標準偏差の3倍までを描画候補とし、画像平面上の描画半径を
+\begin{equation}
+    r_i = \left\lceil 3 \sqrt{\max\left( \lambda_{i,\max}, 0 \right)} \right\rceil
+    \label{eq:gaussian_rendering_radius}
+\end{equation}
+とする。
+
+\subsubsection*{描画矩形}
+Gaussian $i$の投影中心を
+\begin{equation}
+    \bm{u}_i = \begin{bmatrix} u_{i,x} & u_{i,y} \end{bmatrix}^{\mathsf T}
+\end{equation}
+とする。
+画像の幅を$W$、高さを$H$とすると、Gaussian $i$の描画矩形を
+\begin{equation}
+    \begin{aligned}
+        x_{i,\min} &= \max\left( 0, \left\lfloor u_{i,x}-r_i\right\rfloor \right),\\
+        x_{i,\max} &= \min\left( W-1, \left\lceil u_{i,x}+r_i\right\rceil \right),\\
+        y_{i,\min} &= \max\left( 0, \left\lfloor u_{i,y}-r_i\right\rfloor \right),\\
+        y_{i,\max} &= \min\left( H-1, \left\lceil u_{i,y}+r_i\right\rceil \right)
+    \end{aligned}
+    \label{eq:gaussian_rendering_rectangle}
+\end{equation}
+によって定義する。
+
+$x_{i,\min}>x_{i,\max}$または$y_{i,\min}>y_{i,\max}$となる場合、Gaussian $i$の描画矩形は画像領域と交差しないため、そのGaussianを描画対象から除外する。
+
+画像の左上の画素を$(0,0)$とし、$x$方向を右向き、$y$方向を下向きとする。
+画素$j$の座標を
+\begin{equation}
+\begin{aligned}
+    \bm{x}_j &= \begin{bmatrix} x_j & y_j \end{bmatrix}^{\top}, \\
+    x_j &\in\{0,\ldots,W-1\}, \qquad y_j\in\{0,\ldots,H-1\}
+\end{aligned}
+\label{eq:pixel_coordinate_convention}
+\end{equation}
+とする。
+
+画素$j$がGaussian $i$の描画矩形に含まれる条件は
+\begin{equation}
+    x_{i,\min} \leq x_j \leq x_{i,\max}, \qquad y_{i,\min} \leq y_j \leq y_{i,\max}
+\end{equation}
+である。
+この条件を満たすGaussianの集合を、画素$j$の描画候補集合$\mathcal{N}_j$とする。
+
+\subsubsection*{深度ソート}
+画素色を前方から後方へ正しく合成するため、描画対象となるGaussianをカメラ座標における深度$z_i$の昇順に並べる。
+Gaussian $k$がGaussian $i$よりもカメラに近いことを
+\begin{equation}
+    k\prec i \quad\Longleftrightarrow\quad z_k<z_i
+    \label{eq:implementation_depth_order}
+\end{equation}
+と定義する。
+
+二つのGaussianの深度が等しい場合は、Gaussianのインデックスが小さいものを手前として扱う。
+これにより、同一の入力に対して描画順序が一意に定まる。
+
+初期実装では、描画対象となるGaussian全体を深度順に並べ、その順序に従って各Gaussianの描画矩形内の画素を更新する。
+この処理により、各画素$j$に対して$\mathcal{N}_j$を個別にソートすることなく、同一の深度順序で画素色を合成できる。
+
+\subsubsection*{画素色の逐次合成}
+描画対象となるGaussianを式\eqref{eq:implementation_depth_order}の深度順に処理し、各Gaussianの描画矩形に含まれる画素について、累積色および累積透過率を更新する。
+不透明度の上限処理、省略判定、累積透過率による処理の打ち切りおよび画素色の逐次合成については、小節\ref{sec:opacity_compositing_stabilization}に示す。
+
+初期実装では、タイル単位のカリングおよびソートを行わず、Gaussianごとに描画矩形内の画素を処理する。
+また、深度ソートによって得られる描画順序は離散的な値であるため、逆伝播では描画順序を固定し、ソート処理そのものに関する勾配は計算しない。
+
+\subsection{2D共分散の数値安定化}
+\label{sec:covariance_stabilization}
+
+式\eqref{eq:covariance_2d}によって得られる2D共分散行列は、浮動小数点演算による誤差や、投影後のGaussianが極端に小さくなることにより、数値的に不安定になる場合がある。
+そこで、実装では、まず2D共分散行列を
+\begin{equation}
+    \Sigma_{i,\mathrm{sym}}^{\prime} = \frac{1}{2} \left(\Sigma_i^{\prime} + \Sigma_i^{\prime\top}\right)
+    \label{eq:symmetrized_2d_covariance}
+\end{equation}
+と対称化する。
+その後、対角成分に定数$\varepsilon_{\mathrm{cov}}$を加え、レンダリングに使用する2D共分散行列を
+\begin{equation}
+    \Sigma_{i,\mathrm{render}}^{\prime} = \Sigma_{i,\mathrm{sym}}^{\prime} + \varepsilon_{\mathrm{cov}}I_2
+    \label{eq:stabilized_2d_covariance}
+\end{equation}
+とする。
+初期実装では、
+\begin{equation}
+    \varepsilon_{\mathrm{cov}}=0.3
+\end{equation}
+とする。
+ここで、$\varepsilon_{\mathrm{cov}}$の単位は画素座標系における$\mathrm{pixel}^2$である。
+
+式\eqref{eq:stabilized_2d_covariance}を
+\begin{equation}
+    \Sigma_{i,\mathrm{render}}^{\prime} =
+    \begin{bmatrix}
+        a_i & b_i\\
+        b_i & c_i
+    \end{bmatrix}
+\end{equation}
+と表し、その行列式を
+\begin{equation}
+    \Delta_i=a_ic_i-b_i^2
+\end{equation}
+とする。
+逆行列の計算では、丸め誤差によって$\Delta_i$が過度に小さくなることを防ぐため、
+\begin{equation}
+    \Delta_{i,\mathrm{safe}} = \max\left(\Delta_i,\varepsilon_{\det}\right), \qquad \varepsilon_{\det}=10^{-8}
+    \label{eq:safe_2d_covariance_determinant}
+\end{equation}
+とする。
+レンダリングに使用する逆共分散行列は、
+\begin{equation}
+    \Sigma_{i,\mathrm{render}}^{\prime-1} = \frac{1}{\Delta_{i,\mathrm{safe}}}
+    \begin{bmatrix}
+        c_i & -b_i\\
+        -b_i & a_i
+    \end{bmatrix}
+    \label{eq:stabilized_inverse_2d_covariance}
+\end{equation}
+によって計算する。
+
+Gaussianの描画範囲および画素上の不透明度を計算する際は、理論上の$\Sigma_i^{\prime}$ではなく、安定化後の$\Sigma_{i,\mathrm{render}}^{\prime}$および$\Sigma_{i,\mathrm{render}}^{\prime-1}$を使用する。
+
+式\eqref{eq:symmetrized_2d_covariance}から式\eqref{eq:stabilized_inverse_2d_covariance}までの処理はPyTorchのテンソル演算として順伝播に含める。
+したがって、これらの処理を含む勾配はPyTorchの自動微分によって計算する。
+
+\subsection{不透明度合成の数値安定化}
+\label{sec:opacity_compositing_stabilization}
+
+Gaussian $i$の画素$j$における不透明度は、安定化後の逆共分散行列を用いて
+\begin{equation}
+    \alpha_{ij}^{\prime} = \alpha_i \exp\left( -\frac{1}{2} (\bm{x}_j-\bm{u}_i)^{\top} \Sigma_{i,\mathrm{render}}^{\prime-1} (\bm{x}_j-\bm{u}_i) \right)
+    \label{eq:implementation_projected_opacity}
+\end{equation}
+と計算する。
+
+不透明度が$1$に近い場合、透過率が急激に$0$へ近づき、後続するGaussianへの勾配が消失する可能性がある。
+そこで、実際に合成に使用する不透明度を
+\begin{equation}
+    \overline{\alpha}_{ij}^{\prime} = \min\left( \alpha_{ij}^{\prime}, \alpha_{\max} \right), \qquad \alpha_{\max}=0.99
+    \label{eq:clamped_projected_opacity}
+\end{equation}
+とする。
+
+また、画素色への寄与が十分に小さいGaussianを省略するため、
+\begin{equation}
+    \widehat{\alpha}_{ij}^{\prime} =
+    \begin{cases}
+        \overline{\alpha}_{ij}^{\prime},
+        &
+        \overline{\alpha}_{ij}^{\prime}
+        \geq\alpha_{\min},
+        \\[2mm]
+        0,
+        &
+        \overline{\alpha}_{ij}^{\prime}
+        <\alpha_{\min},
+    \end{cases}
+    \qquad
+    \alpha_{\min}=\frac{1}{255}
+    \label{eq:opacity_contribution_threshold}
+\end{equation}
+とする。
+
+画素$j$に重なるGaussianをカメラから近い順に$1,\ldots,M_j$とする。
+画素色の累積値を$\bm{C}_{0,j}=\bm{0}$、透過率を$T_{0,j}=1$とする。
+
+$i$番目のGaussianを合成する前に、合成後の候補透過率を
+\begin{equation}
+    T_{i,j}^{\mathrm{test}} = T_{i-1,j} \left( 1-\widehat{\alpha}_{ij}^{\prime} \right)
+    \label{eq:stable_transmittance_accumulation}
+\end{equation}
+と計算する。ここで、
+\begin{equation}
+    T_{i,j}^{\mathrm{test}}<T_{\min}, \qquad T_{\min}=10^{-4}
+    \label{eq:transmittance_termination}
+\end{equation}
+となった場合は、$i$番目のGaussianを画素色へ合成せず、$i$番目以降のGaussianの処理を終了する。
+
+一方、$T_{i,j}^{\mathrm{test}}\geq T_{\min}$である場合は、累積色および累積透過率を
+\begin{align}
+    \bm{C}_{i,j} &= \bm{C}_{i-1,j} + T_{i-1,j} \widehat{\alpha}_{ij}^{\prime} \bm{c}_i,
+    \label{eq:stable_color_accumulation}\\
+    T_{i,j} &= T_{i,j}^{\mathrm{test}}
+\end{align}
+と更新し、次のGaussianの処理へ進む。
+
+実際に画素色へ合成された最後のGaussianの添字を$K_j$とする。
+すべてのGaussianが合成された場合は$K_j=M_j$とし、一つも合成されなかった場合は$K_j=0$とする。
+
+背景色を$\bm{c}_{\mathrm{bg}}$とすると、最終的な画素色は
+\begin{equation}
+    \bm{\gamma}_j = \bm{C}_{K_j,j} + T_{K_j,j}\bm{c}_{\mathrm{bg}}
+    \label{eq:implementation_pixel_color_with_background}
+\end{equation}
+である。
+初期実装では背景色を黒、すなわち$\bm{c}_{\mathrm{bg}}=\bm{0}$とするため、
+\begin{equation}
+    \bm{\gamma}_j = \bm{C}_{K_j,j}
+\end{equation}
+となる。
+
+不透明度の下限判定および透過率による打ち切り判定は離散的な処理であるため、これらの判定条件自体に関する勾配は計算しない。
+一方、判定によって合成対象となったGaussianについては、式\eqref{eq:clamped_projected_opacity}から累積色および累積透過率の更新までのテンソル演算をPyTorchの自動微分の対象とする。
+
+\subsection{ハイパーパラメータ}
+\subsubsection*{中心位置の学習率スケジュール}
+中心位置$\bm{p}_{w,i}$の学習率は、学習の進行に伴って
+初期学習率$\eta_{p,\mathrm{init}}$から
+最終学習率$\eta_{p,\mathrm{final}}$まで指数的に減衰させる。
+総反復回数を$T$、現在の反復回数を$t$とすると、
+中心位置の学習率を
+\begin{equation}
+    \begin{aligned}
+        &\eta_p(t) = \exp\left[ \left(1-\frac{t}{T}\right) \log\eta_{p,\mathrm{init}} + \frac{t}{T} \log\eta_{p,\mathrm{final}} \right], \\
+        &t\in\{0,\ldots,T\}
+    \end{aligned}
+    \label{eq:position_learning_rate_schedule}
+\end{equation}
+とする。
+初期実装では、
+\begin{equation}
+    \eta_{p,\mathrm{init}}=1.6\times10^{-4}, \qquad \eta_{p,\mathrm{final}}=1.6\times10^{-6}, \qquad T=30000
+\end{equation}
+とする。
+中心位置以外の学習パラメータについては、表\ref{tab:implementation_hyperparameters}に示す一定の学習率を使用する。
+
+初期実装で使用するハイパーパラメータを表\ref{tab:implementation_hyperparameters}に示す。
+
+\subsection{実装の検証}
+実装の妥当性を確認するため、以下の項目を検証する。
+\begin{enumerate}
+    \item 単一のGaussianを光軸上に配置したとき、レンダリング画像の中心に楕円状の分布が描画されること。
+    \item 等方的なスケールを持つGaussianについて、クォータニオンを変化させてもレンダリング結果が変化しないこと。
+    \item 3D共分散行列および2D共分散行列が対称正定値行列となること。
+    \item 各学習パラメータについて、PyTorchの自動微分によって得られた勾配と数値微分によって得られた勾配が一致すること。
+    \item 一つの学習視点のみを用いた過学習実験において、学習の進行に伴って損失関数が減少すること。
+    \item 順伝播および逆伝播の計算結果に\texttt{NaN}または\texttt{Inf}が含まれないこと。
+\end{enumerate}
+
+
+
+\section{Gaussianの適応的密度制御}
+3D Gaussian Splattingの原論文では、学習中にGaussianのパラメータを更新するだけでなく、
+Gaussianの複製、分割および除去を行っている。
+これにより、初期のSfM点群では十分に表現できない領域に
+Gaussianを追加するとともに、レンダリングへの寄与が小さい
+Gaussianを取り除く。この処理を適応的密度制御と呼ぶ。
+
+Gaussian $i$について、学習中に得られた画像平面上の位置勾配の平均を
+\begin{equation}
+    g_i
+    = \frac{1}{|\mathcal{V}_i|}
+    \sum_{v\in\mathcal{V}_i}
+    \left\lVert
+        \frac{\partial\mathcal{L}_v}{\partial\bm{u}_{i,v}}
+    \right\rVert_2
+\end{equation}
+とする。
+ここで、$\mathcal{V}_i$はGaussian $i$が観測された学習視点の集合、
+$\mathcal{L}_v$は学習視点$v$について計算された損失、
+$\bm{u}_{i,v}$はGaussian $i$を学習視点$v$の画像平面上に投影した座標である。
+$g_i$が所定の閾値より大きいGaussianは、その周辺において
+真値画像を十分に再構成できていないと判断され、複製または分割の対象となる。
+
+空間的に小さいGaussianに大きな位置勾配が生じた場合、その
+Gaussianを複製する。複製されたGaussianは、元のGaussianと
+同一のパラメータによって初期化される。その後の勾配更新により、
+元のGaussianと複製されたGaussianがそれぞれ異なる位置へ移動し、
+局所的な表現能力を高める。
+
+空間的に大きいGaussianに大きな位置勾配が生じた場合、その
+Gaussianを複数の小さなGaussianへ分割する。分割後のGaussianの
+中心位置は、元のGaussianが表す確率分布からサンプリングし、
+スケールは元のGaussianよりも小さく設定する。分割後には元の
+Gaussianを除去する。
+
+不透明度が所定の閾値より小さいGaussianは、レンダリング画像への
+寄与が小さいため除去する。また、画像平面上または三次元空間上で
+過度に大きいGaussianも、計算量の増加や再構成品質の低下を防ぐ
+ために除去する。
+
+ただし、実際に実装する初期段階では、順伝播および逆伝播の実装と検証を優先するため、適応的密度制御は導入しない。
+したがって、学習中にGaussianの複製、分割および除去は行わず、SfM点群から初期化した$N$個のGaussianのパラメータのみを更新する。
+このため、学習の開始から終了までGaussianの総数$N$は一定である。
+
+
+\clearpage
+\onecolumn
+
+\footnotesize
+\setlength{\tabcolsep}{5pt}
+\renewcommand{\arraystretch}{1.15}
+
+\begin{longtable}{
+    >{\raggedright\arraybackslash}p{0.17\textwidth}
+    >{\raggedright\arraybackslash}p{0.22\textwidth}
+    >{\centering\arraybackslash}p{0.13\textwidth}
+    >{\raggedright\arraybackslash}p{0.40\textwidth}
+}
+    \caption{初期実装で使用するハイパーパラメータ}
+    \label{tab:implementation_hyperparameters}\\
+
+    \toprule
+    分類 & パラメータ & 設定値 & 説明 \\
+    \midrule
+    \endfirsthead
+
+    \multicolumn{4}{c}{
+        \tablename\ \thetable\ の続き
+    }\\
+    \toprule
+    分類 & パラメータ & 設定値 & 説明 \\
+    \midrule
+    \endhead
+
+    \midrule
+    \multicolumn{4}{r}{次ページに続く}\\
+    \endfoot
+
+    \bottomrule
+    \endlastfoot
+
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    \multicolumn{4}{l}{\textbf{基本設定}}\\
+    \addlinespace
+
+    基本設定
+    & 数値精度
+    & \texttt{float32}
+    & Gaussianのパラメータおよび画像を32ビット浮動小数点数で保持する。\\
+
+    基本設定
+    & 計算デバイス
+    & \texttt{cuda}
+    & GPUを用いて学習およびレンダリングを行う。\\
+
+    基本設定
+    & 乱数シード
+    & $0$
+    & 初期化および学習視点の選択に用いる乱数を固定する。\\
+
+    基本設定
+    & Gaussian数
+    & $N=N_{\mathrm{SfM}}$
+    & SfM点1点につき一つのGaussianを生成し、学習中は総数を固定する。\\
+
+    基本設定
+    & 背景色
+    & $\bm{0}$
+    & RGB値が$[0,1]$の場合の黒色を使用する。\\
+
+    基本設定
+    & 球面調和関数の最大次数
+    & $l_{\max}=3$
+    & 初期実装では学習開始時から最大次数を固定する。\\
+
+    基本設定
+    & 適応的密度制御
+    & 無効
+    & Gaussianの複製、分割および除去を行わない。\\
+
+    基本設定
+    & 不透明度のリセット
+    & 無効
+    & 学習中に不透明度のrawパラメータを再初期化しない。\\
+
+    基本設定
+    & SH次数の段階的増加
+    & 無効
+    & 学習中に球面調和関数の次数を変更しない。\\
+
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    \addlinespace
+    \multicolumn{4}{l}{\textbf{Gaussianの初期化}}\\
+    \addlinespace
+
+    初期化
+    & スケール計算の近傍点数
+    & $3$
+    & 各SfM点に最も近い3点までの平均二乗距離を使用する。\\
+
+    初期化
+    & 平均二乗距離の下限
+    & $\varepsilon_s=10^{-7}$
+    & 初期スケールが$0$となることを防ぐ。\\
+
+    初期化
+    & 初期不透明度
+    & $\alpha_{\mathrm{init}}=0.1$
+    & raw不透明度は
+    $\widetilde{\alpha}_i=\operatorname{logit}(0.1)$
+    と初期化する。\\
+
+    初期化
+    & 初期クォータニオン
+    & $[1,0,0,0]^{\top}$
+    & Gaussianの初期回転を単位回転とする。\\
+
+    初期化
+    & 高次SH係数の初期値
+    & $0$
+    & $l\geq1$の球面調和係数を$0$とする。\\
+
+    初期化
+    & クォータニオン正規化の下限
+    & $\varepsilon_q=10^{-8}$
+    & 除算時には
+    $\max(\lVert\widetilde{\bm q}_i\rVert_2,\varepsilon_q)$
+    を分母として使用する。\\
+
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    \addlinespace
+    \multicolumn{4}{l}{\textbf{レンダリングおよび数値安定化}}\\
+    \addlinespace
+
+    レンダリング
+    & Gaussianの描画範囲
+    & $3\sigma$
+    & 2D共分散行列の最大固有値に基づく半径
+    $r_i=\lceil3\sqrt{\lambda_{i,\max}}\rceil$
+    の範囲を描画候補とする。\\
+
+    レンダリング
+    & 深度条件
+    & $z_i>0$
+    & カメラの後方にあるGaussianを描画対象から除外する。\\
+
+    レンダリング
+    & 深度ソート
+    & 昇順
+    & カメラ座標における深度$z_i$が小さい順にGaussianを合成する。\\
+
+    レンダリング
+    & タイル処理
+    & 無効
+    & 初期実装では画素単位の処理を行い、処理速度より検証を優先する。\\
+
+    数値安定化
+    & 2D共分散の低域通過項
+    & $\varepsilon_{\mathrm{cov}}=0.3$
+    & 2D共分散行列に$0.3I_2$を加える。\\
+
+    数値安定化
+    & 行列式の下限
+    & $\varepsilon_{\det}=10^{-8}$
+    & 2D共分散行列の逆行列を計算する際のゼロ除算を防ぐ。\\
+
+    数値安定化
+    & 画素不透明度の上限
+    & $\alpha_{\max}=0.99$
+    & 画素ごとの不透明度を
+    $\min(0.99,\alpha_{ij}^{\prime})$に制限する。\\
+
+    数値安定化
+    & 不透明度の省略閾値
+    & $\alpha_{\min}=1/255$
+    & $\alpha_{ij}^{\prime}<1/255$となるGaussianの寄与を無視する。\\
+
+    数値安定化
+    & 累積透過率の終了閾値
+    & $T_{\min}=10^{-4}$
+    & 累積透過率が閾値未満となった時点で、それより奥の合成を終了する。\\
+
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    \addlinespace
+    \multicolumn{4}{l}{\textbf{損失関数}}\\
+    \addlinespace
+
+    損失関数
+    & D-SSIM損失の重み
+    & $\lambda=0.2$
+    & 全体の損失を
+    $\mathcal L=(1-\lambda)\mathcal L_1
+    +\lambda\mathcal L_{\mathrm{D\text{-}SSIM}}$
+    とする。\\
+
+    SSIM
+    & 局所窓の大きさ
+    & $11\times11$
+    & 各画素を中心とする局所領域として使用する。\\
+
+    SSIM
+    & ガウス窓の標準偏差
+    & $1.5$
+    & SSIMの局所統計量を計算するガウス窓に使用する。\\
+
+    SSIM
+    & 安定化定数
+    & $K_1=0.01$
+    & SSIMの輝度項に使用する。\\
+
+    SSIM
+    & 安定化定数
+    & $K_2=0.03$
+    & SSIMのコントラストおよび構造項に使用する。\\
+
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    \addlinespace
+    \multicolumn{4}{l}{\textbf{最適化}}\\
+    \addlinespace
+
+    最適化
+    & 最適化手法
+    & Adam
+    & すべての学習パラメータをAdamによって更新する。\\
+
+    最適化
+    & 反復回数
+    & $30{,}000$
+    & 初期実装における学習の総更新回数とする。\\
+
+    最適化
+    & 1反復当たりの学習視点数
+    & $1$
+    & 各反復で一つの学習視点を選択する。\\
+
+    最適化
+    & 学習視点の選択方法
+    & ランダム
+    & 全学習視点から重複なしで選択し、すべて選択した後に再度並べ直す。\\
+
+    Adam
+    & 一次モーメント係数
+    & $\beta_1=0.9$
+    & Adamの一次モーメント推定に使用する。\\
+
+    Adam
+    & 二次モーメント係数
+    & $\beta_2=0.999$
+    & Adamの二次モーメント推定に使用する。\\
+
+    Adam
+    & 安定化定数
+    & $\varepsilon_{\mathrm{Adam}}=10^{-15}$
+    & Adamの更新式におけるゼロ除算を防ぐ。\\
+
+    Adam
+    & 重み減衰
+    & $0$
+    & 初期実装では重み減衰を使用しない。\\
+
+    学習率
+    & 中心位置の初期学習率
+    & $\eta_{p,\mathrm{init}}=1.6\times10^{-4}$
+    & 中心位置の学習率スケジュールの初期値とする。\\
+
+    学習率
+    & 中心位置の最終学習率
+    & $\eta_{p,\mathrm{final}}=1.6\times10^{-6}$
+    & $30{,}000$反復後の中心位置の学習率とする。\\
+
+    学習率
+    & 0次SH係数
+    & $\eta_{h,0}=2.5\times10^{-3}$
+    & 球面調和関数の0次係数に使用する。\\
+
+    学習率
+    & 高次SH係数
+    & $\eta_{h,\mathrm{rest}}=1.25\times10^{-4}$
+    & 0次係数の学習率の$1/20$とする。\\
+
+    学習率
+    & raw不透明度
+    & $\eta_{\alpha}=5.0\times10^{-2}$
+    & raw不透明度$\widetilde{\alpha}_i$に使用する。\\
+
+    学習率
+    & rawスケール
+    & $\eta_s=5.0\times10^{-3}$
+    & rawスケール$\widetilde{\bm s}_i$に使用する。\\
+
+    学習率
+    & rawクォータニオン
+    & $\eta_q=1.0\times10^{-3}$
+    & rawクォータニオン$\widetilde{\bm q}_i$に使用する。\\
+
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    \addlinespace
+    \multicolumn{4}{l}{\textbf{評価}}\\
+    \addlinespace
+
+    評価
+    & 真値画像の画素値域
+    & $[0,1]$
+    & 真値画像のRGB値域を$[0,1]$とする。評価時には、レンダリング画像のRGB値を同じ範囲にクリップする。\\
+
+    評価
+    & 評価時のレンダリング画像のクリップ
+    & $[0,1]$
+    & 評価時には、レンダリング画像のRGB値を同じ範囲にクリップする。\\
+
+    評価
+    & PSNRにおける最大画素値
+    & $I_{\max}=1$
+    & 各テスト画像のPSNRを計算した後、それらの算術平均を報告する。\\
+
+\end{longtable}
+
+\end{document}
