@@ -1,0 +1,155 @@
+from __future__ import annotations
+
+from dataclasses import replace
+from pathlib import Path
+
+import torch
+
+from gaussian_splatting.config import Config, load_config
+from gaussian_splatting.data.camera import Camera
+from gaussian_splatting.model.gaussian_model import GaussianModel
+from gaussian_splatting.renderer.renderer import GaussianRenderer
+from gaussian_splatting.training.optimizer import create_optimizer
+from gaussian_splatting.training.schedules import PositionLearningRateScheduler
+from gaussian_splatting.training.trainer import Trainer
+
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def _tiny_config() -> Config:
+    config = load_config(ROOT / "configs" / "default.yaml")
+    return replace(
+        config,
+        loss=replace(config.loss, ssim_window_size=3, ssim_sigma=0.8),
+        training=replace(
+            config.training,
+            iterations=3,
+            log_interval=3,
+            evaluation_interval=3,
+            checkpoint_interval=3,
+        ),
+        output=replace(config.output, save_rendered_images=False),
+    )
+
+
+def _tiny_model() -> GaussianModel:
+    return GaussianModel(
+        means_world=torch.tensor([[-0.10, 0.00, 2.0], [0.15, 0.08, 2.3]]),
+        raw_quaternions=torch.tensor(
+            [[1.0, 0.10, 0.05, 0.00], [1.0, 0.00, 0.20, -0.10]]
+        ),
+        raw_scales=torch.log(
+            torch.tensor([[0.12, 0.08, 0.10], [0.10, 0.14, 0.08]])
+        ),
+        raw_opacities=torch.logit(torch.tensor([[0.35], [0.45]])),
+        sh_dc=torch.tensor(
+            [[[0.10, -0.05, 0.00]], [[-0.08, 0.02, 0.12]]]
+        ),
+        sh_rest=torch.zeros((2, 15, 3)),
+    )
+
+
+def _tiny_camera(image_value: float = 0.25, name: str = "tiny.png") -> Camera:
+    image = torch.full((3, 7, 7), image_value)
+    image[0].add_(0.05)
+    image[2].sub_(0.05)
+    return Camera(
+        rotation_cw=torch.eye(3),
+        translation_cw=torch.zeros(3),
+        camera_center_world=torch.zeros(3),
+        fx=8.0,
+        fy=8.0,
+        cx=3.0,
+        cy=3.0,
+        width=7,
+        height=7,
+        image=image,
+        image_name=name,
+    )
+
+
+def test_train_step_has_finite_gradients_and_updates_parameters(
+    tmp_path: Path,
+) -> None:
+    torch.manual_seed(0)
+    config = _tiny_config()
+    model = _tiny_model()
+    camera = _tiny_camera()
+    optimizer = create_optimizer(model, config)
+    scheduler = PositionLearningRateScheduler(
+        optimizer,
+        total_iterations=config.training.iterations,
+        initial_learning_rate=config.training.position_lr_initial,
+        final_learning_rate=config.training.position_lr_final,
+    )
+    trainer = Trainer(
+        model=model,
+        renderer=GaussianRenderer(config.rendering),
+        train_cameras=[camera],
+        evaluation_cameras=[camera],
+        optimizer=optimizer,
+        scheduler=scheduler,
+        config=config,
+        output_directory=tmp_path,
+        camera_order=[0],
+    )
+    before = {
+        name: parameter.detach().clone()
+        for name, parameter in model.named_parameters()
+    }
+
+    result = trainer.train_step(camera, iteration=1)
+
+    assert torch.isfinite(result.loss.total)
+    assert torch.isfinite(result.loss.l1)
+    assert torch.isfinite(result.loss.dssim)
+    assert torch.isfinite(result.psnr)
+    assert torch.isfinite(result.render.image).all()
+    assert result.position_learning_rate == scheduler._position_group()["lr"]
+    for parameter in model.parameters():
+        assert parameter.grad is not None
+        assert torch.isfinite(parameter.grad).all()
+        assert torch.isfinite(parameter).all()
+    assert any(
+        not torch.equal(parameter.detach(), before[name])
+        for name, parameter in model.named_parameters()
+    )
+
+
+def test_one_hundred_updates_remain_finite(tmp_path: Path) -> None:
+    torch.manual_seed(0)
+    config = _tiny_config()
+    config = replace(
+        config,
+        training=replace(config.training, iterations=100),
+    )
+    model = _tiny_model()
+    camera = _tiny_camera()
+    optimizer = create_optimizer(model, config)
+    scheduler = PositionLearningRateScheduler(
+        optimizer,
+        total_iterations=100,
+        initial_learning_rate=config.training.position_lr_initial,
+        final_learning_rate=config.training.position_lr_final,
+    )
+    trainer = Trainer(
+        model=model,
+        renderer=GaussianRenderer(config.rendering),
+        train_cameras=[camera],
+        evaluation_cameras=[camera],
+        optimizer=optimizer,
+        scheduler=scheduler,
+        config=config,
+        output_directory=tmp_path,
+        camera_order=[0],
+    )
+
+    for iteration in range(1, 101):
+        result = trainer.train_step(camera, iteration)
+        assert torch.isfinite(result.loss.total)
+        assert torch.isfinite(result.render.image).all()
+    for parameter in model.parameters():
+        assert torch.isfinite(parameter).all()
+        assert parameter.grad is not None
+        assert torch.isfinite(parameter.grad).all()

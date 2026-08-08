@@ -1,0 +1,13 @@
+{
+  "rotation_cw": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+  "translation_cw": [0.0, 0.0, 0.0],
+  "camera_center_world": [0.0, 0.0, 0.0],
+  "fx": 38.0,
+  "fy": 38.0,
+  "cx": 16.0,
+  "cy": 16.0,
+  "width": 32,
+  "height": 32,
+  "image_name": "ground_truth.png"
+}
+

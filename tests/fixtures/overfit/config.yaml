@@ -1,0 +1,69 @@
+runtime:
+  device: cpu
+  dtype: float32
+  seed: 20260807
+
+data:
+  camera_file: camera.json
+  resolution_scale: 1.0
+  rgba_background: black
+  test_every: 8
+
+model:
+  sh_degree: 3
+  epsilon_q: 1.0e-8
+
+initialization:
+  num_gaussians: 4
+  aabb_half_extent: [1.0, 1.0, 1.0]
+  initial_rgb: [0.5, 0.5, 0.5]
+  neighbor_count: 3
+  epsilon_scale: 1.0e-7
+  opacity: 0.35
+
+rendering:
+  background: [0.0, 0.0, 0.0]
+  sigma_extent: 3.0
+  epsilon_covariance: 0.3
+  epsilon_determinant: 1.0e-8
+  alpha_max: 0.99
+  alpha_min: 0.00392156862745098
+  transmittance_min: 1.0e-4
+  tile_based: false
+
+loss:
+  lambda_dssim: 0.2
+  ssim_window_size: 11
+  ssim_sigma: 1.5
+  ssim_k1: 0.01
+  ssim_k2: 0.03
+
+training:
+  iterations: 1000
+  views_per_iteration: 1
+  optimizer: adam
+  adam_beta1: 0.9
+  adam_beta2: 0.999
+  adam_epsilon: 1.0e-15
+  weight_decay: 0.0
+  position_lr_initial: 5.0e-3
+  position_lr_final: 5.0e-4
+  sh_dc_lr: 2.0e-2
+  sh_rest_lr: 1.0e-3
+  opacity_lr: 2.0e-2
+  scale_lr: 1.0e-2
+  quaternion_lr: 5.0e-3
+  log_interval: 1000
+  evaluation_interval: 1000
+  checkpoint_interval: 1000
+  save_best_by: mean_psnr
+
+output:
+  exist_policy: error
+  save_rendered_images: false
+
+features:
+  adaptive_density_control: false
+  opacity_reset: false
+  progressive_sh_degree: false
+
