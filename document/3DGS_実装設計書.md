@@ -2,8 +2,9 @@
 
 - 基準資料：`3DGS_定式化.tex`、`3D_Gaussian_Splatting_定式化.pdf`
 - 対象：PyTorchによる検証優先の初期実装
-- 文書版：1.3
+- 文書版：1.4
 - 作成日：2026年8月6日
+- 最終更新日：2026年8月8日
 
 ## 1. 文書の目的
 
@@ -53,6 +54,8 @@ Codexへは、本書、`3DGS_定式化.tex`および`3D_Gaussian_Splatting_定�
 - タイル単位のカリングおよびタイルごとの深度ソート
 - 公式ビューアとのネットワーク通信
 - OpenGLによるリアルタイム表示
+
+別資料「3DGS Gaussian可視化ツール 仕様書」で定義するGaussian可視化ツールおよび対話的viewerは、将来実装の対象であり、本書が扱う3DGS初期コア実装には含めない。
 
 ### 3.3 初期実装の性能上の位置付け
 
@@ -566,7 +569,7 @@ def total_loss(
 |---|---|---|
 | `position_learning_rate_schedule()` | `eq:position_learning_rate_schedule` | `1.6e-4`から`1.6e-6`まで30,000反復で指数減衰 |
 
-`iteration`は`0 <= iteration <= total_iterations`へ制限する。`LambdaLR`へ渡す倍率ではなく、現在の学習率そのものを返す。
+公開される学習反復番号は1始まりとし、`iteration`は`1 <= iteration <= total_iterations`へ制限する。反復1を初回、`total_iterations`を最終反復として扱い、この反復番号をそのまま学習率scheduleへ渡す。`LambdaLR`へ渡す倍率ではなく、現在の学習率そのものを返す。
 
 `PositionLearningRateScheduler`は現在反復を保持し、`step(iteration)`で`means_world`グループの学習率を更新する。`state_dict()`と`load_state_dict()`を実装し、学習再開時に反復位置を復元する。
 
@@ -610,6 +613,8 @@ class Trainer:
 9. 損失、PSNR、Gaussian数および学習率をログへ記録する。
 
 全視点を一度ずつ選択した後、視点リストを再度シャッフルする。30,000反復を既定値とする。
+
+新規学習時の反復範囲は`range(1, total_iterations + 1)`とする。ログ、評価結果、チェックポイント名およびチェックポイント内部の`iteration`にも、同じ1始まりの反復番号を記録する。
 
 `log_interval`ごとに学習ログ、`evaluation_interval`ごとに評価、`checkpoint_interval`ごとにチェックポイント保存を行う。最終反復では各間隔に一致しない場合でも、ログ・評価・チェックポイント保存を必ず行う。
 
@@ -698,6 +703,7 @@ Blenderのカメラ情報と画像の変換規約を次のように固定する�
 - Pillowで画像を開いた直後に`ImageOps.exif_transpose()`を適用する。その後、グレースケールはRGBの3チャネルへ複製し、RGB画像はそのまま使用する。
 - RGBA画像は、`data.rgba_background`が`black`ならRGBに黒背景を合成し、`white`なら白背景を合成する。それ以外の値は設定エラーとする。
 - `resolution_scale`は`0 < resolution_scale <= 1`とする。元画像サイズを`(W,H)`、変換後を`(W',H')`とし、`W'=round(W*scale)`、`H'=round(H*scale)`とする。内部パラメータは`fx*=W'/W`、`cx*=W'/W`、`fy*=H'/H`、`cy*=H'/H`で変換する。
+- 画像をリサイズする場合は、公式実装の`PILtoTorch`に合わせて`PIL.Image.resize((W', H'))`を補間方式の明示なしで呼び出し、Pillowの既定の補間方法を使用する。
 - JSONの`resolution_x`、`resolution_y`と実ファイルのEXIF補正後サイズが一致しない場合は、暗黙に補正せず`ValueError`を送出する。
 - `frames`は`index`の昇順で並べ、`index`の重複や欠番、`file_path`の重複、対応画像の不存在はエラーとする。0始まりのフレーム順位`k`について`k % test_every == 0`を評価用、それ以外を学習用とする。`test_every <= 1`、または学習・評価のいずれかが空になる場合は`ValueError`を送出する。
 
@@ -837,9 +843,13 @@ data/
 
 `best_mean_psnr`は評価を一度も実行していない場合に`None`とし、それ以外は再開前までの最高平均PSNRを保持する。再開時には、上記の全状態を`optimizer.step()`直後の境界へ復元する。保存済み設定と新たに指定された設定が異なる場合は、`output`およびログ間隔以外の差異をエラーとする。同じチェックポイントから再開した最初の1反復について、選択カメラ、損失および更新後パラメータが一致することを要件とする。
 
+チェックポイントの`iteration`は、保存直前に完了した1始まりの反復番号を表す。反復`k`のチェックポイントから再開する場合は、モデル、最適化器、scheduler、乱数状態、`camera_order`および`camera_cursor`を復元した上で、次の反復`k + 1`から処理を再開する。`k >= total_iterations`の場合は追加の更新を行わず、学習完了として扱う。
+
 ### 9.3 PLY
 
 学習済みGaussianを公式実装と交換できるよう、`x, y, z`、法線用ダミー値、`f_dc_*`、`f_rest_*`、`opacity`、`scale_*`および`rot_*`を保存する。`opacity`、`scale_*`および`rot_*`には、`GaussianModel`が保持するraw不透明度、rawスケールおよびrawクォータニオンを格納する。0次SH係数は`sh_dc.transpose(1, 2).flatten(1)`、高次SH係数は`sh_rest.transpose(1, 2).flatten(1)`で平坦化し、それぞれ`f_dc_0,...,f_dc_2`および`f_rest_0,...,f_rest_44`の順に保存する。読み込み時は`f_rest_*`を番号順に並べ、`reshape(N, 3, 15).transpose(1, 2)`によって`(N,15,3)`へ戻す。往復変換テストで属性値が保持されることを確認する。
+
+`nx`、`ny`、`nz`は公式形式との互換性を維持するためのplaceholderとして0を保存し、初期実装では計算に使用しない。PLYの既定出力形式は公式実装と同じbinary little endianとする。デバッグおよび内容検査に限り、同一の属性名と保存値を持つASCII形式も選択可能とする。ローダは両形式を読み込めなければならない。
 
 ### 9.4 出力ディレクトリ
 
@@ -948,6 +958,23 @@ def test_world_to_camera__eq_world_to_camera():
 5. 保存直前とチェックポイント再読み込み直後のレンダリング画像の最大絶対誤差が`1e-6`以下となる。
 6. 同一のチェックポイントから再開した次の1反復について、選択されたカメラ添字が一致し、更新後の全パラメータの最大絶対誤差が`1e-6`以下となる。
 7. チェックポイント再開前後で`best_mean_psnr`が一致し、再開後の`best.pt`更新判定が同一となる。
+
+#### 11.4.1 単一学習視点による過学習fixture
+
+`tests/fixtures/overfit/`は、次の条件を固定した再生成可能な結合テストfixtureとする。
+
+- 固定乱数seedを使用する。
+- 教師画像の解像度を`32 x 32`とする。
+- 重なりと異なる深度を含む4個の固定Gaussianから教師画像を生成する。
+- 教師画像を生成したGaussianとは異なる初期値から学習を開始する。
+- Gaussian数、カメラ、背景色、SH次数および学習率をfixture内で固定する。
+- densification、pruningおよび不透明度resetを無効にする。
+- 固定した単一視点を1,000反復学習する。
+- 最初の50反復の平均損失に対して、最後の50反復の平均損失が50%未満であることを合格条件とする。
+- 全1,000反復について、損失、描画画像、全学習パラメータおよび勾配に`NaN`または`Inf`がないことを確認する。
+- 教師画像に加えて教師Gaussianも保存し、fixtureの由来と教師画像の再生成手順を確認できるようにする。
+
+このfixtureはレンダリング、逆伝播およびoptimizerによる更新が一貫して動作することを検証する。同じレンダラで教師画像を生成するため、レンダリング式そのものの正しさは、数値微分との勾配比較および単一Gaussianの描画テストで別途検証する。
 
 ## 12. 実装順序
 

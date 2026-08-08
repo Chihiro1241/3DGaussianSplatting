@@ -1471,14 +1471,15 @@ $i$番目のGaussianを合成する前に、合成後の候補透過率を
 \begin{equation}
     \begin{aligned}
         &\eta_p(t) = \exp\left[ \left(1-\frac{t}{T}\right) \log\eta_{p,\mathrm{init}} + \frac{t}{T} \log\eta_{p,\mathrm{final}} \right], \\
-        &t\in\{0,\ldots,T\}
+        &t\in\{1,\ldots,T\}
     \end{aligned}
     \label{eq:position_learning_rate_schedule}
 \end{equation}
 とする。
+\footnote{ここで、$\eta_{p,\mathrm{init}}$は$t=0$に対応する基準値であり、実際の学習では反復番号を1始まりとするため、最初に使用する学習率は$\eta_p(1)$である。}
 初期実装では、
 \begin{equation}
-    \eta_{p,\mathrm{init}}=1.6\times10^{-4}, \qquad \eta_{p,\mathrm{final}}=1.6\times10^{-6}, \qquad T=30000
+    \eta_{p,\mathrm{init}}=1.6\times10^{-4}, \quad \eta_{p,\mathrm{final}}=1.6\times10^{-6}, \quad T=30000
 \end{equation}
 とする。
 中心位置以外の学習パラメータについては、表\ref{tab:implementation_hyperparameters}に示す一定の学習率を使用する。
@@ -1492,7 +1493,7 @@ $i$番目のGaussianを合成する前に、合成後の候補透過率を
     \item 等方的なスケールを持つGaussianについて、クォータニオンを変化させてもレンダリング結果が変化しないこと。
     \item 3D共分散行列および2D共分散行列が対称正定値行列となること。
     \item 各学習パラメータについて、PyTorchの自動微分によって得られた勾配と数値微分によって得られた勾配が一致すること。
-    \item 一つの学習視点のみを用いた過学習実験において、学習の進行に伴って損失関数が減少すること。
+    \item 固定した単一学習視点を1,000反復学習し、最初の50反復における平均損失に対して、最後の50反復における平均損失が50\%未満となることを確認する。
     \item 順伝播および逆伝播の計算結果に\texttt{NaN}または\texttt{Inf}が含まれないこと。
 \end{enumerate}
 
