@@ -1,6 +1,10 @@
 """Training utilities for Gaussian Splatting."""
 
-from gaussian_splatting.training.density_control import ScreenSpaceDensityStatistics
+from gaussian_splatting.training.density_control import (
+    GaussianPruneResult,
+    ScreenSpaceDensityStatistics,
+    prune_gaussians,
+)
 from gaussian_splatting.training.losses import LossResult, total_loss
 from gaussian_splatting.training.optimizer import (
     append_gaussian_parameters,
@@ -20,6 +24,7 @@ from gaussian_splatting.training.trainer import (
 
 __all__ = [
     "LossResult",
+    "GaussianPruneResult",
     "PositionLearningRateScheduler",
     "ScreenSpaceDensityStatistics",
     "EvaluationResult",
@@ -30,5 +35,6 @@ __all__ = [
     "create_optimizer",
     "keep_gaussian_parameters",
     "position_learning_rate_schedule",
+    "prune_gaussians",
     "total_loss",
 ]

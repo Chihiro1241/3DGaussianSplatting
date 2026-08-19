@@ -2,11 +2,40 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+import math
+from numbers import Real
+
 import torch
 from torch import Tensor
 
 from gaussian_splatting.model.gaussian_model import GaussianModel
 from gaussian_splatting.renderer.renderer import RenderResult
+from gaussian_splatting.training.optimizer import keep_gaussian_parameters
+
+
+@dataclass(frozen=True)
+class GaussianPruneResult:
+    """Counts from one pruning transaction.
+
+    Reason-specific counts are intentionally non-exclusive. A Gaussian that
+    matches multiple criteria contributes once to ``num_pruned_total`` and
+    once to every matching reason count.
+    """
+
+    num_gaussians_before: int
+    num_gaussians_after: int
+    num_pruned_total: int
+    num_low_opacity: int
+    num_large_screen: int
+    num_large_world: int
+
+
+@dataclass(frozen=True)
+class _StatisticsState:
+    position_gradient_accumulator: Tensor
+    position_gradient_denominator: Tensor
+    max_screen_radius: Tensor
 
 
 class ScreenSpaceDensityStatistics:
@@ -61,6 +90,8 @@ class ScreenSpaceDensityStatistics:
 
     def validate_compatible(self, model: GaussianModel) -> None:
         """Raise if the statistics do not match the model's indexed parameters."""
+        if not isinstance(model, GaussianModel):
+            raise TypeError("model must be a GaussianModel")
         if self.num_gaussians != model.num_gaussians:
             raise ValueError(
                 "density statistics Gaussian count does not match model: "
@@ -76,6 +107,39 @@ class ScreenSpaceDensityStatistics:
                 "density statistics device does not match model: "
                 f"{self.device} != {model.means_world.device}"
             )
+        expected_shape = (model.num_gaussians,)
+        states = (
+            (
+                "position_gradient_accumulator",
+                self.position_gradient_accumulator,
+                model.means_world.dtype,
+            ),
+            (
+                "position_gradient_denominator",
+                self.position_gradient_denominator,
+                torch.int64,
+            ),
+            ("max_screen_radius", self.max_screen_radius, torch.int64),
+        )
+        for name, value, expected_dtype in states:
+            if value.shape != expected_shape:
+                raise ValueError(
+                    f"{name} must have shape {expected_shape}, got {tuple(value.shape)}"
+                )
+            if value.dtype != expected_dtype:
+                raise TypeError(
+                    f"{name} must have dtype {expected_dtype}, got {value.dtype}"
+                )
+            if value.device != model.means_world.device:
+                raise ValueError(f"{name} must be on the model device")
+        if not torch.isfinite(self.position_gradient_accumulator).all().item():
+            raise ValueError("position_gradient_accumulator must be finite")
+        if torch.any(self.position_gradient_accumulator < 0).item():
+            raise ValueError("position_gradient_accumulator must be non-negative")
+        if torch.any(self.position_gradient_denominator < 0).item():
+            raise ValueError("position_gradient_denominator must be non-negative")
+        if torch.any(self.max_screen_radius < 0).item():
+            raise ValueError("max_screen_radius must be non-negative")
 
     def accumulate(self, render: RenderResult) -> None:
         """Accumulate gradients and radii from a completed backward pass."""
@@ -177,6 +241,11 @@ class ScreenSpaceDensityStatistics:
 
     def keep(self, keep_mask: Tensor) -> None:
         """Keep the same selected Gaussian indices in every statistic."""
+        state = self._prepare_keep(keep_mask)
+        self._commit_state(state)
+
+    def _prepare_keep(self, keep_mask: Tensor) -> _StatisticsState:
+        """Validate a mask and build all replacement tensors without mutation."""
         if keep_mask.dtype != torch.bool:
             raise TypeError("keep_mask must have dtype torch.bool")
         if keep_mask.device != self.device:
@@ -190,12 +259,40 @@ class ScreenSpaceDensityStatistics:
                 f"({self.num_gaussians},), got {tuple(keep_mask.shape)}"
             )
 
-        accumulator = self.position_gradient_accumulator[keep_mask]
-        denominator = self.position_gradient_denominator[keep_mask]
-        radius = self.max_screen_radius[keep_mask]
-        self.position_gradient_accumulator = accumulator
-        self.position_gradient_denominator = denominator
-        self.max_screen_radius = radius
+        return _StatisticsState(
+            position_gradient_accumulator=(
+                self.position_gradient_accumulator[keep_mask]
+            ),
+            position_gradient_denominator=(
+                self.position_gradient_denominator[keep_mask]
+            ),
+            max_screen_radius=self.max_screen_radius[keep_mask],
+        )
+
+    def _commit_state(self, state: _StatisticsState) -> None:
+        """Install a fully prepared state, restoring old references on failure."""
+        previous = _StatisticsState(
+            position_gradient_accumulator=self.position_gradient_accumulator,
+            position_gradient_denominator=self.position_gradient_denominator,
+            max_screen_radius=self.max_screen_radius,
+        )
+        try:
+            self.position_gradient_accumulator = (
+                state.position_gradient_accumulator
+            )
+            self.position_gradient_denominator = (
+                state.position_gradient_denominator
+            )
+            self.max_screen_radius = state.max_screen_radius
+        except BaseException:
+            self.position_gradient_accumulator = (
+                previous.position_gradient_accumulator
+            )
+            self.position_gradient_denominator = (
+                previous.position_gradient_denominator
+            )
+            self.max_screen_radius = previous.max_screen_radius
+            raise
 
     def _validate_render_shapes(
         self,
@@ -245,3 +342,122 @@ class ScreenSpaceDensityStatistics:
             or not torch.all(visible_mask[indices])
         ):
             raise ValueError("visible_mask and projected.original_indices are inconsistent")
+
+
+def _validated_threshold(
+    value: Real | None,
+    name: str,
+    *,
+    allow_none: bool,
+    unit_interval: bool = False,
+) -> float | None:
+    if value is None:
+        if allow_none:
+            return None
+        raise TypeError(f"{name} must be a real number")
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise TypeError(f"{name} must be a real number")
+    threshold = float(value)
+    if not math.isfinite(threshold):
+        raise ValueError(f"{name} must be finite")
+    if unit_interval:
+        if not 0.0 <= threshold <= 1.0:
+            raise ValueError(f"{name} must lie in the closed interval [0, 1]")
+    elif threshold < 0.0:
+        raise ValueError(f"{name} must be non-negative")
+    return threshold
+
+
+def prune_gaussians(
+    model: GaussianModel,
+    optimizer: torch.optim.Adam,
+    statistics: ScreenSpaceDensityStatistics,
+    *,
+    opacity_threshold: Real,
+    screen_radius_threshold: Real | None = None,
+    world_scale_threshold: Real | None = None,
+) -> GaussianPruneResult:
+    """Prune the union of low-opacity, large-screen, and large-world rows.
+
+    Opacity uses ``actual_opacity < opacity_threshold``; equality is kept.
+    Enabled size criteria use strict ``>`` comparisons. Reason counts in the
+    returned result are non-exclusive, while ``num_pruned_total`` is the size
+    of their union.
+    """
+    if not isinstance(model, GaussianModel):
+        raise TypeError("model must be a GaussianModel")
+    if not isinstance(optimizer, torch.optim.Adam):
+        raise TypeError("optimizer must be torch.optim.Adam")
+    if not isinstance(statistics, ScreenSpaceDensityStatistics):
+        raise TypeError("statistics must be ScreenSpaceDensityStatistics")
+    opacity_threshold_value = _validated_threshold(
+        opacity_threshold,
+        "opacity_threshold",
+        allow_none=False,
+        unit_interval=True,
+    )
+    screen_threshold_value = _validated_threshold(
+        screen_radius_threshold,
+        "screen_radius_threshold",
+        allow_none=True,
+    )
+    world_threshold_value = _validated_threshold(
+        world_scale_threshold,
+        "world_scale_threshold",
+        allow_none=True,
+    )
+    if opacity_threshold_value is None:  # pragma: no cover - validated above
+        raise RuntimeError("opacity threshold validation returned None")
+    statistics.validate_compatible(model)
+
+    with torch.no_grad():
+        transformed = model.transformed_parameters()
+        actual_opacities = transformed.opacities.squeeze(-1)
+        maximum_world_scales = transformed.scales.amax(dim=-1)
+        low_opacity = actual_opacities < opacity_threshold_value
+        if screen_threshold_value is None:
+            large_screen = torch.zeros_like(low_opacity)
+        else:
+            large_screen = (
+                statistics.max_screen_radius > screen_threshold_value
+            )
+        if world_threshold_value is None:
+            large_world = torch.zeros_like(low_opacity)
+        else:
+            large_world = maximum_world_scales > world_threshold_value
+        prune_mask = low_opacity | large_screen | large_world
+        keep_mask = ~prune_mask
+
+        num_gaussians_before = model.num_gaussians
+        num_low_opacity = int(low_opacity.sum().item())
+        num_large_screen = int(large_screen.sum().item())
+        num_large_world = int(large_world.sum().item())
+        num_pruned_total = int(prune_mask.sum().item())
+
+    result = GaussianPruneResult(
+        num_gaussians_before=num_gaussians_before,
+        num_gaussians_after=num_gaussians_before - num_pruned_total,
+        num_pruned_total=num_pruned_total,
+        num_low_opacity=num_low_opacity,
+        num_large_screen=num_large_screen,
+        num_large_world=num_large_world,
+    )
+    if num_pruned_total == 0:
+        keep_gaussian_parameters(model, optimizer, keep_mask)
+        return result
+
+    prepared_statistics = statistics._prepare_keep(keep_mask)
+    keep_gaussian_parameters(
+        model,
+        optimizer,
+        keep_mask,
+        commit_callback=lambda: statistics._commit_state(prepared_statistics),
+    )
+    return result
+
+
+__all__ = [
+    "GaussianPruneResult",
+    "ScreenSpaceDensityStatistics",
+    "prune_gaussians",
+]

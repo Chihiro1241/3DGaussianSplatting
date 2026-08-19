@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any, Literal
 
 import torch
@@ -176,6 +176,7 @@ def _commit_parameter_transaction(
     groups: Mapping[str, dict[str, Any]],
     new_parameters: Mapping[str, nn.Parameter],
     new_states: Mapping[str, object],
+    commit_callback: Callable[[], None] | None = None,
 ) -> dict[str, nn.Parameter]:
     old_parameters = model.gaussian_parameter_dict()
     old_states = {
@@ -194,6 +195,8 @@ def _commit_parameter_transaction(
             state = new_states[name]
             if state is not _NO_STATE:
                 optimizer.state[new_parameter] = state
+        if commit_callback is not None:
+            commit_callback()
     except BaseException:
         for name in GAUSSIAN_PARAMETER_NAMES:
             optimizer.state.pop(new_parameters[name], None)
@@ -253,8 +256,15 @@ def keep_gaussian_parameters(
     model: GaussianModel,
     optimizer: torch.optim.Adam,
     keep_mask: Tensor,
+    *,
+    commit_callback: Callable[[], None] | None = None,
 ) -> dict[str, nn.Parameter]:
-    """Keep the same selected Gaussian indices in every Parameter and Adam moment."""
+    """Keep the same indices in every Parameter, Adam moment, and callback state.
+
+    If ``commit_callback`` raises, the model and optimizer are restored to their
+    pre-transaction references and state. This lets an index-aligned side state
+    join the same rollback boundary.
+    """
 
     groups = _validated_parameter_groups(model, optimizer)
     if not isinstance(keep_mask, Tensor):
@@ -286,7 +296,12 @@ def keep_gaussian_parameters(
         for name in GAUSSIAN_PARAMETER_NAMES
     }
     return _commit_parameter_transaction(
-        model, optimizer, groups, new_parameters, new_states
+        model,
+        optimizer,
+        groups,
+        new_parameters,
+        new_states,
+        commit_callback=commit_callback,
     )
 
 
