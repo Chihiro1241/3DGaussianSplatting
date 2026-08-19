@@ -1,7 +1,11 @@
 """Training utilities for Gaussian Splatting."""
 
 from gaussian_splatting.training.losses import LossResult, total_loss
-from gaussian_splatting.training.optimizer import create_optimizer
+from gaussian_splatting.training.optimizer import (
+    append_gaussian_parameters,
+    create_optimizer,
+    keep_gaussian_parameters,
+)
 from gaussian_splatting.training.schedules import (
     PositionLearningRateScheduler,
     position_learning_rate_schedule,
@@ -19,8 +23,10 @@ __all__ = [
     "EvaluationResult",
     "Trainer",
     "TrainStepResult",
+    "append_gaussian_parameters",
     "camera_to",
     "create_optimizer",
+    "keep_gaussian_parameters",
     "position_learning_rate_schedule",
     "total_loss",
 ]

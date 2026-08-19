@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 import math
 
@@ -10,6 +11,16 @@ from torch import Tensor, nn
 
 
 _FLOAT_DTYPES = (torch.float32, torch.float64)
+
+GAUSSIAN_PARAMETER_SPECS: tuple[tuple[str, tuple[int, ...]], ...] = (
+    ("means_world", (3,)),
+    ("raw_quaternions", (4,)),
+    ("raw_scales", (3,)),
+    ("raw_opacities", (1,)),
+    ("sh_dc", (1, 3)),
+    ("sh_rest", (15, 3)),
+)
+GAUSSIAN_PARAMETER_NAMES = tuple(name for name, _ in GAUSSIAN_PARAMETER_SPECS)
 
 
 def _validate_parameter_tensor(
@@ -98,24 +109,14 @@ class GaussianModel(nn.Module):
             raise ValueError("epsilon_q must be finite and positive")
 
         named_tensors = {
-            "means_world": (means_world, (3,)),
-            "raw_quaternions": (raw_quaternions, (4,)),
-            "raw_scales": (raw_scales, (3,)),
-            "raw_opacities": (raw_opacities, (1,)),
-            "sh_dc": (sh_dc, (1, 3)),
-            "sh_rest": (sh_rest, (15, 3)),
+            "means_world": means_world,
+            "raw_quaternions": raw_quaternions,
+            "raw_scales": raw_scales,
+            "raw_opacities": raw_opacities,
+            "sh_dc": sh_dc,
+            "sh_rest": sh_rest,
         }
-        counts = {
-            _validate_parameter_tensor(name, tensor, shape_tail)
-            for name, (tensor, shape_tail) in named_tensors.items()
-        }
-        if len(counts) != 1:
-            raise ValueError("all raw Gaussian parameter tensors must have the same N")
-        tensors = tuple(tensor for tensor, _ in named_tensors.values())
-        if len({tensor.dtype for tensor in tensors}) != 1:
-            raise TypeError("all raw Gaussian parameter tensors must have the same dtype")
-        if len({tensor.device for tensor in tensors}) != 1:
-            raise ValueError("all raw Gaussian parameter tensors must be on the same device")
+        self.validate_gaussian_parameter_tensors(named_tensors)
 
         self.epsilon_q = float(epsilon_q)
         self.sh_degree = sh_degree
@@ -125,6 +126,79 @@ class GaussianModel(nn.Module):
         self.raw_opacities = nn.Parameter(raw_opacities.detach().clone())
         self.sh_dc = nn.Parameter(sh_dc.detach().clone())
         self.sh_rest = nn.Parameter(sh_rest.detach().clone())
+
+    @classmethod
+    def validate_gaussian_parameter_tensors(
+        cls,
+        tensors: Mapping[str, Tensor],
+    ) -> tuple[int, torch.dtype, torch.device]:
+        """Validate one complete, index-aligned set of raw Gaussian tensors."""
+
+        if not isinstance(tensors, Mapping):
+            raise TypeError("Gaussian parameter tensors must be provided as a mapping")
+        expected_names = set(GAUSSIAN_PARAMETER_NAMES)
+        actual_names = set(tensors)
+        missing = sorted(expected_names - actual_names)
+        unknown = sorted(actual_names - expected_names)
+        if missing or unknown:
+            details: list[str] = []
+            if missing:
+                details.append(f"missing parameters: {', '.join(missing)}")
+            if unknown:
+                details.append(f"unknown parameters: {', '.join(unknown)}")
+            raise ValueError(f"invalid Gaussian parameter mapping; {'; '.join(details)}")
+
+        counts = {
+            _validate_parameter_tensor(name, tensors[name], shape_tail)
+            for name, shape_tail in GAUSSIAN_PARAMETER_SPECS
+        }
+        if len(counts) != 1:
+            raise ValueError("all raw Gaussian parameter tensors must have the same N")
+        values = tuple(tensors[name] for name in GAUSSIAN_PARAMETER_NAMES)
+        if len({tensor.dtype for tensor in values}) != 1:
+            raise TypeError("all raw Gaussian parameter tensors must have the same dtype")
+        if len({tensor.device for tensor in values}) != 1:
+            raise ValueError("all raw Gaussian parameter tensors must be on the same device")
+        return counts.pop(), values[0].dtype, values[0].device
+
+    def gaussian_parameter_dict(self) -> dict[str, nn.Parameter]:
+        """Return all raw Parameters in their shared Gaussian-index order."""
+
+        return {name: getattr(self, name) for name in GAUSSIAN_PARAMETER_NAMES}
+
+    def replace_gaussian_parameters(
+        self,
+        parameters: Mapping[str, nn.Parameter],
+    ) -> None:
+        """Atomically install one complete, validated set of raw Parameters.
+
+        Callers that already own an optimizer must also replace its parameter
+        references and state.  The transaction helpers in
+        :mod:`gaussian_splatting.training.optimizer` perform both operations.
+        """
+
+        self.validate_gaussian_parameter_tensors(parameters)
+        for name in GAUSSIAN_PARAMETER_NAMES:
+            parameter = parameters[name]
+            if not isinstance(parameter, nn.Parameter):
+                raise TypeError(f"{name} must be an nn.Parameter")
+            if not parameter.requires_grad:
+                raise ValueError(f"{name} must require gradients")
+        if len({id(parameters[name]) for name in GAUSSIAN_PARAMETER_NAMES}) != len(
+            GAUSSIAN_PARAMETER_NAMES
+        ):
+            raise ValueError("each Gaussian parameter must be a distinct nn.Parameter")
+
+        previous = self.gaussian_parameter_dict()
+        installed: list[str] = []
+        try:
+            for name in GAUSSIAN_PARAMETER_NAMES:
+                setattr(self, name, parameters[name])
+                installed.append(name)
+        except BaseException:
+            for name in installed:
+                setattr(self, name, previous[name])
+            raise
 
     @property
     def num_gaussians(self) -> int:
@@ -163,4 +237,9 @@ class GaussianModel(nn.Module):
         )
 
 
-__all__ = ["GaussianModel", "GaussianParameters"]
+__all__ = [
+    "GAUSSIAN_PARAMETER_NAMES",
+    "GAUSSIAN_PARAMETER_SPECS",
+    "GaussianModel",
+    "GaussianParameters",
+]
