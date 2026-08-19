@@ -19,6 +19,7 @@ from gaussian_splatting.evaluation.metrics import mean_psnr, psnr
 from gaussian_splatting.io.checkpoint import save_checkpoint
 from gaussian_splatting.model.gaussian_model import GaussianModel
 from gaussian_splatting.renderer.renderer import GaussianRenderer, RenderResult
+from gaussian_splatting.training.density_control import ScreenSpaceDensityStatistics
 from gaussian_splatting.training.losses import LossResult, total_loss
 from gaussian_splatting.training.schedules import PositionLearningRateScheduler
 
@@ -106,6 +107,7 @@ class Trainer:
         camera_order: list[int] | None = None,
         camera_cursor: int = 0,
         best_mean_psnr: float | None = None,
+        density_statistics: ScreenSpaceDensityStatistics | None = None,
     ) -> None:
         if not train_cameras or not evaluation_cameras:
             raise ValueError("training and evaluation camera sets must both be non-empty")
@@ -121,6 +123,9 @@ class Trainer:
         self.output_directory = Path(output_directory)
         self.start_iteration = int(start_iteration)
         self.best_mean_psnr = best_mean_psnr
+        if density_statistics is not None:
+            density_statistics.validate_compatible(model)
+        self.density_statistics = density_statistics
         self._started_at = time.monotonic()
 
         if camera_order is None:
@@ -177,7 +182,11 @@ class Trainer:
             raise ValueError("a training camera must contain a target image")
         learning_rate = self.scheduler.step(iteration)
         self.optimizer.zero_grad(set_to_none=True)
-        render = self.renderer(self.model, runtime_camera, retain_screen_grad=False)
+        render = self.renderer(
+            self.model,
+            runtime_camera,
+            retain_screen_grad=self.density_statistics is not None,
+        )
         if render.image.shape != runtime_camera.image.shape:
             raise ValueError("rendered image and target image shapes differ")
         loss = total_loss(
@@ -191,6 +200,8 @@ class Trainer:
         )
         loss.total.backward()
         self._assert_finite_gradients()
+        if self.density_statistics is not None:
+            self.density_statistics.accumulate(render)
         self.optimizer.step()
         self._assert_finite_parameters()
         with torch.no_grad():
