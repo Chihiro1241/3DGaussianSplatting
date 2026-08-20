@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import math
 from numbers import Real
+from typing import Any
 
 import torch
 from torch import Tensor
@@ -59,10 +60,60 @@ class GaussianSplitResult:
 
 
 @dataclass(frozen=True)
+class GaussianDensityControlResult:
+    """Results from one atomic clone, split, prune, and reset event."""
+
+    num_gaussians_before: int
+    num_gaussians_after: int
+    clone_result: GaussianCloneResult
+    split_result: GaussianSplitResult
+    prune_result: GaussianPruneResult
+    statistics_reset: bool
+
+    @property
+    def num_cloned(self) -> int:
+        return self.clone_result.num_cloned
+
+    @property
+    def num_split_parents(self) -> int:
+        return self.split_result.num_split_parents
+
+    @property
+    def num_children_created(self) -> int:
+        return self.split_result.num_children_created
+
+    @property
+    def num_pruned_total(self) -> int:
+        return self.prune_result.num_pruned_total
+
+    @property
+    def num_low_opacity(self) -> int:
+        return self.prune_result.num_low_opacity
+
+    @property
+    def num_large_screen(self) -> int:
+        return self.prune_result.num_large_screen
+
+    @property
+    def num_large_world(self) -> int:
+        return self.prune_result.num_large_world
+
+
+@dataclass(frozen=True)
 class _StatisticsState:
     position_gradient_accumulator: Tensor
     position_gradient_denominator: Tensor
     max_screen_radius: Tensor
+
+
+@dataclass(frozen=True)
+class _DensityControlEventSnapshot:
+    model_parameters: dict[str, torch.nn.Parameter]
+    optimizer_group_parameters: tuple[tuple[Tensor, ...], ...]
+    optimizer_state: dict[object, dict[str, Any]]
+    statistics_references: _StatisticsState
+    statistics_values: _StatisticsState
+    rng_state: Tensor
 
 
 class ScreenSpaceDensityStatistics:
@@ -531,6 +582,77 @@ def _restore_rng_state(device: torch.device, state: Tensor) -> None:
     raise ValueError("Gaussian split RNG supports CPU and CUDA devices")
 
 
+def _capture_density_control_snapshot(
+    model: GaussianModel,
+    optimizer: torch.optim.Adam,
+    statistics: ScreenSpaceDensityStatistics,
+) -> _DensityControlEventSnapshot:
+    references = _StatisticsState(
+        position_gradient_accumulator=statistics.position_gradient_accumulator,
+        position_gradient_denominator=statistics.position_gradient_denominator,
+        max_screen_radius=statistics.max_screen_radius,
+    )
+    values = _StatisticsState(
+        position_gradient_accumulator=(
+            statistics.position_gradient_accumulator.clone()
+        ),
+        position_gradient_denominator=(
+            statistics.position_gradient_denominator.clone()
+        ),
+        max_screen_radius=statistics.max_screen_radius.clone(),
+    )
+    return _DensityControlEventSnapshot(
+        model_parameters=model.gaussian_parameter_dict(),
+        optimizer_group_parameters=tuple(
+            tuple(group["params"]) for group in optimizer.param_groups
+        ),
+        optimizer_state=dict(optimizer.state),
+        statistics_references=references,
+        statistics_values=values,
+        rng_state=_rng_state(model.means_world.device),
+    )
+
+
+def _restore_density_control_snapshot(
+    model: GaussianModel,
+    optimizer: torch.optim.Adam,
+    statistics: ScreenSpaceDensityStatistics,
+    snapshot: _DensityControlEventSnapshot,
+) -> None:
+    try:
+        model.replace_gaussian_parameters(snapshot.model_parameters)
+        for group, parameters in zip(
+            optimizer.param_groups,
+            snapshot.optimizer_group_parameters,
+            strict=True,
+        ):
+            group["params"][:] = parameters
+        optimizer.state.clear()
+        optimizer.state.update(snapshot.optimizer_state)
+
+        statistics.position_gradient_accumulator = (
+            snapshot.statistics_references.position_gradient_accumulator
+        )
+        statistics.position_gradient_denominator = (
+            snapshot.statistics_references.position_gradient_denominator
+        )
+        statistics.max_screen_radius = (
+            snapshot.statistics_references.max_screen_radius
+        )
+        with torch.no_grad():
+            statistics.position_gradient_accumulator.copy_(
+                snapshot.statistics_values.position_gradient_accumulator
+            )
+            statistics.position_gradient_denominator.copy_(
+                snapshot.statistics_values.position_gradient_denominator
+            )
+            statistics.max_screen_radius.copy_(
+                snapshot.statistics_values.max_screen_radius
+            )
+    finally:
+        _restore_rng_state(model.means_world.device, snapshot.rng_state)
+
+
 def split_gaussians(
     model: GaussianModel,
     optimizer: torch.optim.Adam,
@@ -741,12 +863,148 @@ def prune_gaussians(
     return result
 
 
+def run_density_control_event(
+    model: GaussianModel,
+    optimizer: torch.optim.Adam,
+    statistics: ScreenSpaceDensityStatistics,
+    *,
+    gradient_threshold: Real,
+    densify_world_scale_threshold: Real,
+    prune_opacity_threshold: Real,
+    prune_screen_radius_threshold: Real | None = None,
+    prune_world_scale_threshold: Real | None = None,
+) -> GaussianDensityControlResult:
+    """Atomically run clone, split, prune, then reset the statistics window."""
+    if not isinstance(model, GaussianModel):
+        raise TypeError("model must be a GaussianModel")
+    if not isinstance(optimizer, torch.optim.Adam):
+        raise TypeError("optimizer must be torch.optim.Adam")
+    if not isinstance(statistics, ScreenSpaceDensityStatistics):
+        raise TypeError("statistics must be ScreenSpaceDensityStatistics")
+
+    gradient_threshold_value = _validated_threshold(
+        gradient_threshold,
+        "gradient_threshold",
+        allow_none=False,
+    )
+    densify_scale_threshold_value = _validated_threshold(
+        densify_world_scale_threshold,
+        "densify_world_scale_threshold",
+        allow_none=False,
+        positive=True,
+    )
+    prune_opacity_threshold_value = _validated_threshold(
+        prune_opacity_threshold,
+        "prune_opacity_threshold",
+        allow_none=False,
+        unit_interval=True,
+    )
+    prune_screen_threshold_value = _validated_threshold(
+        prune_screen_radius_threshold,
+        "prune_screen_radius_threshold",
+        allow_none=True,
+    )
+    prune_world_threshold_value = _validated_threshold(
+        prune_world_scale_threshold,
+        "prune_world_scale_threshold",
+        allow_none=True,
+    )
+    required_thresholds = (
+        gradient_threshold_value,
+        densify_scale_threshold_value,
+        prune_opacity_threshold_value,
+    )
+    if any(value is None for value in required_thresholds):  # pragma: no cover
+        raise RuntimeError("required density-control threshold validation failed")
+
+    statistics.validate_compatible(model)
+    keep_gaussian_parameters(
+        model,
+        optimizer,
+        torch.ones(
+            model.num_gaussians,
+            dtype=torch.bool,
+            device=model.means_world.device,
+        ),
+    )
+    snapshot = _capture_density_control_snapshot(model, optimizer, statistics)
+    num_gaussians_before = model.num_gaussians
+
+    try:
+        clone_result = clone_gaussians(
+            model,
+            optimizer,
+            statistics,
+            gradient_threshold=gradient_threshold_value,
+            world_scale_threshold=densify_scale_threshold_value,
+        )
+        split_result = split_gaussians(
+            model,
+            optimizer,
+            statistics,
+            gradient_threshold=gradient_threshold_value,
+            world_scale_threshold=densify_scale_threshold_value,
+        )
+        prune_result = prune_gaussians(
+            model,
+            optimizer,
+            statistics,
+            opacity_threshold=prune_opacity_threshold_value,
+            screen_radius_threshold=prune_screen_threshold_value,
+            world_scale_threshold=prune_world_threshold_value,
+        )
+        expected_after = (
+            num_gaussians_before
+            + clone_result.num_cloned
+            + split_result.num_split_parents
+            - prune_result.num_pruned_total
+        )
+        if clone_result.num_gaussians_before != num_gaussians_before:
+            raise RuntimeError("clone result does not start at the event Gaussian count")
+        if split_result.num_gaussians_before != clone_result.num_gaussians_after:
+            raise RuntimeError("split result does not follow the clone result")
+        if prune_result.num_gaussians_before != split_result.num_gaussians_after:
+            raise RuntimeError("prune result does not follow the split result")
+        if model.num_gaussians != expected_after:
+            raise RuntimeError("density-control Gaussian count accounting failed")
+
+        statistics.reset()
+        statistics.validate_compatible(model)
+        if any(
+            torch.count_nonzero(value).item() != 0
+            for value in (
+                statistics.position_gradient_accumulator,
+                statistics.position_gradient_denominator,
+                statistics.max_screen_radius,
+            )
+        ):
+            raise RuntimeError("density-control statistics reset did not clear all rows")
+        return GaussianDensityControlResult(
+            num_gaussians_before=num_gaussians_before,
+            num_gaussians_after=model.num_gaussians,
+            clone_result=clone_result,
+            split_result=split_result,
+            prune_result=prune_result,
+            statistics_reset=True,
+        )
+    except BaseException:
+        _restore_density_control_snapshot(
+            model,
+            optimizer,
+            statistics,
+            snapshot,
+        )
+        raise
+
+
 __all__ = [
     "GaussianCloneResult",
+    "GaussianDensityControlResult",
     "GaussianPruneResult",
     "GaussianSplitResult",
     "ScreenSpaceDensityStatistics",
     "clone_gaussians",
     "prune_gaussians",
+    "run_density_control_event",
     "split_gaussians",
 ]
