@@ -214,8 +214,14 @@ def append_gaussian_parameters(
     model: GaussianModel,
     optimizer: torch.optim.Adam,
     additions: Mapping[str, Tensor],
+    *,
+    commit_callback: Callable[[], None] | None = None,
 ) -> dict[str, nn.Parameter]:
-    """Append index-aligned Gaussian rows and migrate any existing Adam state."""
+    """Append rows and atomically commit optional index-aligned side state.
+
+    If ``commit_callback`` raises, the model and optimizer are restored to their
+    pre-transaction references and state.
+    """
 
     groups = _validated_parameter_groups(model, optimizer)
     added_count, added_dtype, added_device = model.validate_gaussian_parameter_tensors(
@@ -248,7 +254,12 @@ def append_gaussian_parameters(
         for name in GAUSSIAN_PARAMETER_NAMES
     }
     return _commit_parameter_transaction(
-        model, optimizer, groups, new_parameters, new_states
+        model,
+        optimizer,
+        groups,
+        new_parameters,
+        new_states,
+        commit_callback=commit_callback,
     )
 
 

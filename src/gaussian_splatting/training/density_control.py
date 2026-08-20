@@ -9,9 +9,24 @@ from numbers import Real
 import torch
 from torch import Tensor
 
-from gaussian_splatting.model.gaussian_model import GaussianModel
+from gaussian_splatting.model.gaussian_model import (
+    GAUSSIAN_PARAMETER_NAMES,
+    GaussianModel,
+)
 from gaussian_splatting.renderer.renderer import RenderResult
-from gaussian_splatting.training.optimizer import keep_gaussian_parameters
+from gaussian_splatting.training.optimizer import (
+    append_gaussian_parameters,
+    keep_gaussian_parameters,
+)
+
+
+@dataclass(frozen=True)
+class GaussianCloneResult:
+    """Counts from one deterministic Gaussian clone transaction."""
+
+    num_gaussians_before: int
+    num_gaussians_after: int
+    num_cloned: int
 
 
 @dataclass(frozen=True)
@@ -215,10 +230,23 @@ class ScreenSpaceDensityStatistics:
 
     def append_zeros(self, count: int) -> None:
         """Append zero-initialized rows for newly created Gaussians."""
+        state = self._prepare_append_zeros(count)
+        self._commit_state(state)
+
+    def _prepare_append_zeros(self, count: int) -> _StatisticsState:
+        """Build an appended zero state without changing current statistics."""
         if count < 0:
             raise ValueError("append count must be non-negative")
         if count == 0:
-            return
+            return _StatisticsState(
+                position_gradient_accumulator=(
+                    self.position_gradient_accumulator
+                ),
+                position_gradient_denominator=(
+                    self.position_gradient_denominator
+                ),
+                max_screen_radius=self.max_screen_radius,
+            )
 
         accumulator = torch.cat(
             (
@@ -235,9 +263,11 @@ class ScreenSpaceDensityStatistics:
         radius = torch.cat(
             (self.max_screen_radius, self.max_screen_radius.new_zeros(count))
         )
-        self.position_gradient_accumulator = accumulator
-        self.position_gradient_denominator = denominator
-        self.max_screen_radius = radius
+        return _StatisticsState(
+            position_gradient_accumulator=accumulator,
+            position_gradient_denominator=denominator,
+            max_screen_radius=radius,
+        )
 
     def keep(self, keep_mask: Tensor) -> None:
         """Keep the same selected Gaussian indices in every statistic."""
@@ -350,6 +380,7 @@ def _validated_threshold(
     *,
     allow_none: bool,
     unit_interval: bool = False,
+    positive: bool = False,
 ) -> float | None:
     if value is None:
         if allow_none:
@@ -363,9 +394,81 @@ def _validated_threshold(
     if unit_interval:
         if not 0.0 <= threshold <= 1.0:
             raise ValueError(f"{name} must lie in the closed interval [0, 1]")
+    elif positive:
+        if threshold <= 0.0:
+            raise ValueError(f"{name} must be positive")
     elif threshold < 0.0:
         raise ValueError(f"{name} must be non-negative")
     return threshold
+
+
+def clone_gaussians(
+    model: GaussianModel,
+    optimizer: torch.optim.Adam,
+    statistics: ScreenSpaceDensityStatistics,
+    *,
+    gradient_threshold: Real,
+    world_scale_threshold: Real,
+) -> GaussianCloneResult:
+    """Clone small Gaussians whose mean screen-position gradient is high.
+
+    Selection uses inclusive boundaries: ``mean_gradient >= threshold`` and
+    ``max(actual_scale) <= threshold``. Selected raw rows are copied exactly
+    and appended in ascending original-index order.
+    """
+    if not isinstance(model, GaussianModel):
+        raise TypeError("model must be a GaussianModel")
+    if not isinstance(optimizer, torch.optim.Adam):
+        raise TypeError("optimizer must be torch.optim.Adam")
+    if not isinstance(statistics, ScreenSpaceDensityStatistics):
+        raise TypeError("statistics must be ScreenSpaceDensityStatistics")
+    gradient_threshold_value = _validated_threshold(
+        gradient_threshold,
+        "gradient_threshold",
+        allow_none=False,
+    )
+    world_threshold_value = _validated_threshold(
+        world_scale_threshold,
+        "world_scale_threshold",
+        allow_none=False,
+        positive=True,
+    )
+    if gradient_threshold_value is None:  # pragma: no cover - validated above
+        raise RuntimeError("gradient threshold validation returned None")
+    if world_threshold_value is None:  # pragma: no cover - validated above
+        raise RuntimeError("world scale threshold validation returned None")
+    statistics.validate_compatible(model)
+
+    with torch.no_grad():
+        mean_gradient = statistics.mean_position_gradient()
+        maximum_world_scale = model.transformed_parameters().scales.amax(dim=-1)
+        high_gradient = mean_gradient >= gradient_threshold_value
+        small_scale = maximum_world_scale <= world_threshold_value
+        clone_mask = high_gradient & small_scale
+        num_gaussians_before = model.num_gaussians
+        num_cloned = int(clone_mask.sum().item())
+        additions = {
+            name: getattr(model, name).detach()[clone_mask]
+            for name in GAUSSIAN_PARAMETER_NAMES
+        }
+
+    result = GaussianCloneResult(
+        num_gaussians_before=num_gaussians_before,
+        num_gaussians_after=num_gaussians_before + num_cloned,
+        num_cloned=num_cloned,
+    )
+    if num_cloned == 0:
+        append_gaussian_parameters(model, optimizer, additions)
+        return result
+
+    prepared_statistics = statistics._prepare_append_zeros(num_cloned)
+    append_gaussian_parameters(
+        model,
+        optimizer,
+        additions,
+        commit_callback=lambda: statistics._commit_state(prepared_statistics),
+    )
+    return result
 
 
 def prune_gaussians(
@@ -457,7 +560,9 @@ def prune_gaussians(
 
 
 __all__ = [
+    "GaussianCloneResult",
     "GaussianPruneResult",
     "ScreenSpaceDensityStatistics",
+    "clone_gaussians",
     "prune_gaussians",
 ]
