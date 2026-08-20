@@ -11,7 +11,7 @@ import numpy as np
 import torch
 import yaml
 
-from gaussian_splatting.config import load_config, resolve_device, resolve_dtype
+from gaussian_splatting.config import Config, load_config, resolve_device, resolve_dtype
 from gaussian_splatting.data import (
     load_blender_dataset,
     read_camera_poses_json,
@@ -23,8 +23,15 @@ from gaussian_splatting.io.checkpoint import (
     read_checkpoint,
     validate_resume_config,
 )
-from gaussian_splatting.model import generate_initial_points, initialize_gaussian_model
+from gaussian_splatting.model import (
+    GaussianModel,
+    generate_initial_points,
+    initialize_gaussian_model,
+)
 from gaussian_splatting.renderer import GaussianRenderer
+from gaussian_splatting.training.density_control import (
+    ScreenSpaceDensityStatistics,
+)
 from gaussian_splatting.training.optimizer import create_optimizer
 from gaussian_splatting.training.schedules import PositionLearningRateScheduler
 from gaussian_splatting.training.trainer import Trainer
@@ -51,6 +58,16 @@ def _seed_everything(seed: int) -> None:
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
+
+
+def _density_statistics_for_model(
+    model: GaussianModel,
+    config: Config,
+) -> ScreenSpaceDensityStatistics | None:
+    """Create ADC statistics only when the configured feature is enabled."""
+    if not config.features.adaptive_density_control:
+        return None
+    return ScreenSpaceDensityStatistics.for_model(model)
 
 
 def _prepare_output(path: Path, *, resume: bool, config: object) -> None:
@@ -122,12 +139,14 @@ def main(argv: list[str] | None = None) -> int:
         initial_learning_rate=config.training.position_lr_initial,
         final_learning_rate=config.training.position_lr_final,
     )
+    density_statistics = _density_statistics_for_model(model, config)
     if checkpoint_state is not None:
         load_checkpoint(
             args.resume,
             model=model,
             optimizer=optimizer,
             scheduler=scheduler,
+            density_statistics=density_statistics,
             map_location=device,
             restore_random_state=True,
         )
@@ -147,6 +166,7 @@ def main(argv: list[str] | None = None) -> int:
         camera_order=camera_order,
         camera_cursor=camera_cursor,
         best_mean_psnr=best_mean_psnr,
+        density_statistics=density_statistics,
     )
     trainer.train()
     return 0

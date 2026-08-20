@@ -51,14 +51,19 @@ def _tiny_model() -> GaussianModel:
     )
 
 
-def _tiny_camera(image_value: float = 0.25, name: str = "tiny.png") -> Camera:
+def _tiny_camera(
+    image_value: float = 0.25,
+    name: str = "tiny.png",
+    center_x: float = 0.0,
+) -> Camera:
     image = torch.full((3, 7, 7), image_value)
     image[0].add_(0.05)
     image[2].sub_(0.05)
+    center = torch.tensor([center_x, 0.0, 0.0])
     return Camera(
         rotation_cw=torch.eye(3),
-        translation_cw=torch.zeros(3),
-        camera_center_world=torch.zeros(3),
+        translation_cw=-center,
+        camera_center_world=center,
         fx=8.0,
         fy=8.0,
         cx=3.0,
@@ -123,9 +128,17 @@ def test_train_step_accumulates_optional_density_statistics(
     tmp_path: Path,
 ) -> None:
     torch.manual_seed(0)
-    config = _tiny_config()
+    base_config = _tiny_config()
+    config = replace(
+        base_config,
+        features=replace(
+            base_config.features,
+            adaptive_density_control=True,
+        ),
+    )
     model = _tiny_model()
     camera = _tiny_camera()
+    second_camera = _tiny_camera(name="second.png", center_x=1.0)
     optimizer = create_optimizer(model, config)
     scheduler = PositionLearningRateScheduler(
         optimizer,
@@ -137,13 +150,13 @@ def test_train_step_accumulates_optional_density_statistics(
     trainer = Trainer(
         model=model,
         renderer=GaussianRenderer(config.rendering),
-        train_cameras=[camera],
+        train_cameras=[camera, second_camera],
         evaluation_cameras=[camera],
         optimizer=optimizer,
         scheduler=scheduler,
         config=config,
         output_directory=tmp_path,
-        camera_order=[0],
+        camera_order=[0, 1],
         density_statistics=statistics,
     )
 
