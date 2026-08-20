@@ -153,6 +153,29 @@ def test_clone_selects_intersection_copies_raw_rows_and_preserves_order(
     assert torch.count_nonzero(statistics.max_screen_radius[4:]).item() == 0
 
 
+def test_clone_threshold_zero_requires_observation_not_positive_gradient() -> None:
+    model = _model([[0.5, 0.5, 0.5], [0.5, 0.5, 0.5]])
+    optimizer = _optimizer(model)
+    statistics = ScreenSpaceDensityStatistics.for_model(model)
+    statistics.position_gradient_denominator[1] = 1
+    old_values = _values(model)
+
+    result = clone_gaussians(
+        model,
+        optimizer,
+        statistics,
+        gradient_threshold=0.0,
+        world_scale_threshold=1.0,
+    )
+
+    assert result.num_cloned == 1
+    assert result.num_gaussians_after == 3
+    for name in GAUSSIAN_PARAMETER_NAMES:
+        torch.testing.assert_close(
+            getattr(model, name)[2], old_values[name][1], rtol=0.0, atol=0.0
+        )
+
+
 def test_clone_zero_initializes_child_adam_moments_and_preserves_parent_state() -> None:
     model = _model(
         [[0.5, 0.5, 0.5], [0.6, 0.6, 0.6], [2.0, 2.0, 2.0]]

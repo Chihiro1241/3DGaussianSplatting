@@ -198,6 +198,34 @@ def test_split_selection_sampling_scale_attributes_statistics_and_ordering(
     assert torch.count_nonzero(statistics.max_screen_radius[2:]).item() == 0
 
 
+def test_split_threshold_zero_requires_observation_not_positive_gradient() -> None:
+    model = _model([[2.0, 2.0, 2.0], [2.0, 2.0, 2.0]])
+    optimizer = _optimizer(model)
+    statistics = ScreenSpaceDensityStatistics.for_model(model)
+    statistics.position_gradient_denominator[1] = 1
+    unseen_values = {
+        name: getattr(model, name)[0].detach().clone()
+        for name in GAUSSIAN_PARAMETER_NAMES
+    }
+    torch.manual_seed(54321)
+
+    result = split_gaussians(
+        model,
+        optimizer,
+        statistics,
+        gradient_threshold=0.0,
+        world_scale_threshold=1.0,
+    )
+
+    assert result.num_split_parents == 1
+    assert result.num_children_created == 2
+    assert result.num_gaussians_after == 3
+    for name in GAUSSIAN_PARAMETER_NAMES:
+        torch.testing.assert_close(
+            getattr(model, name)[0], unseen_values[name], rtol=0.0, atol=0.0
+        )
+
+
 def test_split_adam_state_keeps_unsplit_moments_and_zeros_children() -> None:
     model = _model([[0.5, 0.5, 0.5], [2.0, 1.0, 1.0], [0.7, 0.8, 0.9]])
     optimizer = _optimizer(model)

@@ -629,9 +629,10 @@ def clone_gaussians(
 ) -> GaussianCloneResult:
     """Clone small Gaussians whose mean screen-position gradient is high.
 
-    Selection uses inclusive boundaries: ``mean_gradient >= threshold`` and
-    ``max(actual_scale) <= threshold``. Selected raw rows are copied exactly
-    and appended in ascending original-index order.
+    Only observed Gaussians are eligible. Selection uses inclusive boundaries:
+    ``mean_gradient >= threshold`` and ``max(actual_scale) <= threshold``.
+    Selected raw rows are copied exactly and appended in ascending original-index
+    order.
     """
     if not isinstance(model, GaussianModel):
         raise TypeError("model must be a GaussianModel")
@@ -659,9 +660,10 @@ def clone_gaussians(
     with torch.no_grad():
         mean_gradient = statistics.mean_position_gradient()
         maximum_world_scale = model.transformed_parameters().scales.amax(dim=-1)
+        observed = statistics.position_gradient_denominator > 0
         high_gradient = mean_gradient >= gradient_threshold_value
         small_scale = maximum_world_scale <= world_threshold_value
-        clone_mask = high_gradient & small_scale
+        clone_mask = observed & high_gradient & small_scale
         num_gaussians_before = model.num_gaussians
         num_cloned = int(clone_mask.sum().item())
         additions = {
@@ -874,8 +876,11 @@ def split_gaussians(
         transformed = model.transformed_parameters()
         mean_gradient = statistics.mean_position_gradient()
         maximum_world_scale = transformed.scales.amax(dim=-1)
-        split_mask = (mean_gradient >= gradient_threshold_value) & (
-            maximum_world_scale > world_threshold_value
+        observed = statistics.position_gradient_denominator > 0
+        split_mask = (
+            observed
+            & (mean_gradient >= gradient_threshold_value)
+            & (maximum_world_scale > world_threshold_value)
         )
         keep_mask = ~split_mask
         num_gaussians_before = model.num_gaussians
