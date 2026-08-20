@@ -1064,7 +1064,7 @@ Gaussianの中心位置および球面調和係数と、スケール、不透明
 
 第\ref{sec:backward}節で導出した偏導関数は、自動微分によって得られた勾配の妥当性を検証するために使用し、初期実装では逆伝播を個別に実装しない。
 
-初期実装ではGaussianの総数$N$を固定し、適応的密度制御、不透明度のリセットおよび球面調和関数の次数を段階的に増加させる処理は行わない。
+当初の検証優先baselineではGaussianの総数$N$を固定し、適応的密度制御、不透明度のリセットおよび球面調和関数の次数を段階的に増加させる処理を行わなかった。現在はbaselineを既定動作として維持しつつ、適応的密度制御と不透明度resetを独立したoptional featureとして実装している。いずれも既定では無効であり、球面調和関数の次数を段階的に増加させる処理は引き続き実装しない。
 また、処理速度よりも数式との一致および勾配の検証を優先する。
 
 \subsection{学習パラメータと変換}
@@ -1539,9 +1539,30 @@ Gaussianを除去する。
 過度に大きいGaussianも、計算量の増加や再構成品質の低下を防ぐ
 ために除去する。
 
-ただし、実際に実装する初期段階では、順伝播および逆伝播の実装と検証を優先するため、適応的密度制御は導入しない。
-したがって、学習中にGaussianの複製、分割および除去は行わず、SfM点群から初期化した$N$個のGaussianのパラメータのみを更新する。
-このため、学習の開始から終了までGaussianの総数$N$は一定である。
+本実装では、当初のfixed-Gaussian baselineに対するoptional extensionとして適応的密度制御を実装する。
+各Gaussianについて位置勾配normの累積値、観測回数および最大screen-space半径を保持し、未観測Gaussianの平均位置勾配を$0$とする。
+training camera centerを$\bm{C}_i$とすると、
+\[
+    \overline{\bm{C}}=\operatorname{mean}_i\bm{C}_i,\qquad
+    E=1.1\max_i\lVert\bm{C}_i-\overline{\bm{C}}\rVert_2
+\]
+によってscene extent $E$を求める。evaluation cameraはこの計算に含めない。
+
+$g_i$が閾値以上で、実scaleの最大成分が$\mathrm{percent\_dense}\,E$以下のGaussianは、6個のraw Parameterを変更せず完全に複製する。境界より大きいGaussianは2個のchildへ分割する。分割では
+\[
+    \bm{\epsilon}\sim\mathcal{N}(\bm{0},I),\qquad
+    \bm{o}_{\mathrm{local}}=\bm{s}_i\odot\bm{\epsilon},\qquad
+    \bm{p}_{w,\mathrm{child}}=\bm{p}_{w,i}+R(\bm{q}_i)\bm{o}_{\mathrm{local}}
+\]
+とし、childの実scaleを$\bm{s}_i/1.6$とする。元のGaussianは除去し、新規clone/split childのAdam momentは$0$から開始する。
+
+prune maskは、実opacityが閾値未満、screen-space半径が有効な閾値を超過、または実scaleの最大成分が有効なworld-space閾値を超過、という条件の和集合とする。一つのeventはclone、split、prune、statistics resetの順であり、一つのeventを一つのstatistics windowとする。不透明度resetを有効にした場合は、
+\[
+    \alpha_{i,\mathrm{new}}=\min(\alpha_i,\alpha_{\mathrm{reset\_max}})
+\]
+をraw opacityへ戻して新しいleaf Parameterへ置換し、opacityのAdam momentを$0$へresetする。
+
+既定では\texttt{adaptive\_density\_control=false}および\texttt{opacity\_reset=false}であり、この場合は学習中のGaussian数$N$を固定する。適応的密度制御を有効にした場合は$N$が動的に変化し、model Parameter、Adam stateおよびstatisticsを同じGaussian indexでtransactionalに更新する。
 
 
 \clearpage
@@ -1602,7 +1623,7 @@ Gaussianを除去する。
     基本設定
     & Gaussian数
     & $N=N_{\mathrm{SfM}}$
-    & SfM点1点につき一つのGaussianを生成し、学習中は総数を固定する。\\
+    & SfM点1点につき一つのGaussianを生成する。既定では総数を固定し、適応的密度制御を有効にした場合は学習中に変化する。\\
 
     基本設定
     & 背景色
@@ -1616,18 +1637,73 @@ Gaussianを除去する。
 
     基本設定
     & 適応的密度制御
-    & 無効
-    & Gaussianの複製、分割および除去を行わない。\\
+    & 既定：無効
+    & optional featureとして実装済みである。有効時はGaussianの複製、分割および除去を行う。\\
 
     基本設定
     & 不透明度のリセット
-    & 無効
-    & 学習中に不透明度のrawパラメータを再初期化しない。\\
+    & 既定：無効
+    & 適応的密度制御とは独立したoptional featureとして実装済みである。\\
 
     基本設定
     & SH次数の段階的増加
     & 無効
     & 学習中に球面調和関数の次数を変更しない。\\
+
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    \addlinespace
+    \multicolumn{4}{l}{\textbf{適応的密度制御（有効時）}}\\
+    \addlinespace
+
+    適応的密度制御
+    & 開始反復
+    & $500$
+    & event条件にはstrictな$t>500$を用いる。\\
+
+    適応的密度制御
+    & 終了反復
+    & $15000$
+    & statistics、eventおよびopacity resetの条件にはstrictな$t<15000$を用いる。\\
+
+    適応的密度制御
+    & event間隔
+    & $100$
+    & 既定では最初のeventを$t=600$、最後のeventを$t=14900$で実行する。\\
+
+    適応的密度制御
+    & 位置勾配閾値
+    & $2\times10^{-4}$
+    & 平均screen-space位置勾配が閾値以上のGaussianをdensification候補とする。\\
+
+    適応的密度制御
+    & 小scale比率
+    & $0.01$
+    & clone/split境界を$0.01E$とする。\\
+
+    適応的密度制御
+    & prune opacity閾値
+    & $0.005$
+    & 実opacityが閾値未満のGaussianをpruneする。\\
+
+    不透明度reset
+    & reset間隔
+    & $3000$
+    & $t<15000$の範囲で定期的にresetする。白背景では$t=500$でも実行する。\\
+
+    不透明度reset
+    & 実opacity上限
+    & $0.01$
+    & reset後の実opacityを現在値と$0.01$の小さい方とする。\\
+
+    適応的密度制御
+    & screen radius閾値
+    & $20.0$
+    & $t>3000$のeventで、最大screen radiusが閾値を超えるGaussianをpruneする。\\
+
+    適応的密度制御
+    & world scale比率
+    & $0.1$
+    & $t>3000$のeventで、実scaleの最大成分が$0.1E$を超えるGaussianをpruneする。\\
 
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     \addlinespace
