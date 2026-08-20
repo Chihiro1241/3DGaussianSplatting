@@ -9,6 +9,7 @@ from numbers import Real
 import torch
 from torch import Tensor
 
+from gaussian_splatting.math.covariance import quaternion_rotation_matrix
 from gaussian_splatting.model.gaussian_model import (
     GAUSSIAN_PARAMETER_NAMES,
     GaussianModel,
@@ -16,6 +17,7 @@ from gaussian_splatting.model.gaussian_model import (
 from gaussian_splatting.renderer.renderer import RenderResult
 from gaussian_splatting.training.optimizer import (
     append_gaussian_parameters,
+    keep_and_append_gaussian_parameters,
     keep_gaussian_parameters,
 )
 
@@ -44,6 +46,16 @@ class GaussianPruneResult:
     num_low_opacity: int
     num_large_screen: int
     num_large_world: int
+
+
+@dataclass(frozen=True)
+class GaussianSplitResult:
+    """Counts from one two-child Gaussian split transaction."""
+
+    num_gaussians_before: int
+    num_gaussians_after: int
+    num_split_parents: int
+    num_children_created: int
 
 
 @dataclass(frozen=True)
@@ -269,6 +281,36 @@ class ScreenSpaceDensityStatistics:
             max_screen_radius=radius,
         )
 
+    def _prepare_keep_and_append_zeros(
+        self,
+        keep_mask: Tensor,
+        append_count: int,
+    ) -> _StatisticsState:
+        """Build one final state containing kept rows followed by zero rows."""
+        kept = self._prepare_keep(keep_mask)
+        if append_count < 0:
+            raise ValueError("append count must be non-negative")
+        return _StatisticsState(
+            position_gradient_accumulator=torch.cat(
+                (
+                    kept.position_gradient_accumulator,
+                    self.position_gradient_accumulator.new_zeros(append_count),
+                )
+            ),
+            position_gradient_denominator=torch.cat(
+                (
+                    kept.position_gradient_denominator,
+                    self.position_gradient_denominator.new_zeros(append_count),
+                )
+            ),
+            max_screen_radius=torch.cat(
+                (
+                    kept.max_screen_radius,
+                    self.max_screen_radius.new_zeros(append_count),
+                )
+            ),
+        )
+
     def keep(self, keep_mask: Tensor) -> None:
         """Keep the same selected Gaussian indices in every statistic."""
         state = self._prepare_keep(keep_mask)
@@ -471,6 +513,146 @@ def clone_gaussians(
     return result
 
 
+def _rng_state(device: torch.device) -> Tensor:
+    if device.type == "cpu":
+        return torch.get_rng_state()
+    if device.type == "cuda":
+        return torch.cuda.get_rng_state(device)
+    raise ValueError("Gaussian split RNG supports CPU and CUDA devices")
+
+
+def _restore_rng_state(device: torch.device, state: Tensor) -> None:
+    if device.type == "cpu":
+        torch.set_rng_state(state)
+        return
+    if device.type == "cuda":
+        torch.cuda.set_rng_state(state, device)
+        return
+    raise ValueError("Gaussian split RNG supports CPU and CUDA devices")
+
+
+def split_gaussians(
+    model: GaussianModel,
+    optimizer: torch.optim.Adam,
+    statistics: ScreenSpaceDensityStatistics,
+    *,
+    gradient_threshold: Real,
+    world_scale_threshold: Real,
+) -> GaussianSplitResult:
+    """Replace each selected large, high-gradient Gaussian with two children.
+
+    Children are ordered like ``selected.repeat(2, ...)``: child A for every
+    selected parent in original-index order, followed by child B in the same
+    parent order. Sampling uses the model device's global PyTorch RNG.
+    """
+    if not isinstance(model, GaussianModel):
+        raise TypeError("model must be a GaussianModel")
+    if not isinstance(optimizer, torch.optim.Adam):
+        raise TypeError("optimizer must be torch.optim.Adam")
+    if not isinstance(statistics, ScreenSpaceDensityStatistics):
+        raise TypeError("statistics must be ScreenSpaceDensityStatistics")
+    gradient_threshold_value = _validated_threshold(
+        gradient_threshold,
+        "gradient_threshold",
+        allow_none=False,
+    )
+    world_threshold_value = _validated_threshold(
+        world_scale_threshold,
+        "world_scale_threshold",
+        allow_none=False,
+        positive=True,
+    )
+    if gradient_threshold_value is None:  # pragma: no cover - validated above
+        raise RuntimeError("gradient threshold validation returned None")
+    if world_threshold_value is None:  # pragma: no cover - validated above
+        raise RuntimeError("world scale threshold validation returned None")
+    statistics.validate_compatible(model)
+
+    with torch.no_grad():
+        transformed = model.transformed_parameters()
+        mean_gradient = statistics.mean_position_gradient()
+        maximum_world_scale = transformed.scales.amax(dim=-1)
+        split_mask = (mean_gradient >= gradient_threshold_value) & (
+            maximum_world_scale > world_threshold_value
+        )
+        keep_mask = ~split_mask
+        num_gaussians_before = model.num_gaussians
+        num_split_parents = int(split_mask.sum().item())
+        num_children_created = 2 * num_split_parents
+
+    result = GaussianSplitResult(
+        num_gaussians_before=num_gaussians_before,
+        num_gaussians_after=(
+            num_gaussians_before - num_split_parents + num_children_created
+        ),
+        num_split_parents=num_split_parents,
+        num_children_created=num_children_created,
+    )
+
+    # Validate model/optimizer references and every existing Adam state before
+    # sampling. The all-true keep is guaranteed not to replace any object.
+    keep_gaussian_parameters(
+        model,
+        optimizer,
+        torch.ones_like(split_mask),
+    )
+    if num_split_parents == 0:
+        return result
+
+    device = model.means_world.device
+    rng_state = _rng_state(device)
+    try:
+        with torch.no_grad():
+            parent_scales = transformed.scales[split_mask]
+            parent_rotations = quaternion_rotation_matrix(
+                transformed.quaternions[split_mask]
+            )
+            repeated_scales = parent_scales.repeat(2, 1)
+            repeated_rotations = parent_rotations.repeat(2, 1, 1)
+            local_samples = repeated_scales * torch.randn(
+                (num_children_created, 3),
+                dtype=model.means_world.dtype,
+                device=device,
+            )
+            world_offsets = torch.bmm(
+                repeated_rotations, local_samples.unsqueeze(-1)
+            ).squeeze(-1)
+            additions: dict[str, Tensor] = {
+                "means_world": (
+                    model.means_world.detach()[split_mask].repeat(2, 1)
+                    + world_offsets
+                ),
+                "raw_scales": torch.log(repeated_scales / 1.6),
+            }
+            for name in (
+                "raw_quaternions",
+                "raw_opacities",
+                "sh_dc",
+                "sh_rest",
+            ):
+                parent_values = getattr(model, name).detach()[split_mask]
+                repeats = (2,) + (1,) * (parent_values.ndim - 1)
+                additions[name] = parent_values.repeat(repeats)
+
+            prepared_statistics = statistics._prepare_keep_and_append_zeros(
+                keep_mask,
+                num_children_created,
+            )
+        keep_and_append_gaussian_parameters(
+            model,
+            optimizer,
+            keep_mask,
+            additions,
+            commit_callback=lambda: statistics._commit_state(
+                prepared_statistics
+            ),
+        )
+    except BaseException:
+        _restore_rng_state(device, rng_state)
+        raise
+    return result
+
+
 def prune_gaussians(
     model: GaussianModel,
     optimizer: torch.optim.Adam,
@@ -562,7 +744,9 @@ def prune_gaussians(
 __all__ = [
     "GaussianCloneResult",
     "GaussianPruneResult",
+    "GaussianSplitResult",
     "ScreenSpaceDensityStatistics",
     "clone_gaussians",
     "prune_gaussians",
+    "split_gaussians",
 ]

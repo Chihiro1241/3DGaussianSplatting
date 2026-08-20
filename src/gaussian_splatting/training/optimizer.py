@@ -101,7 +101,7 @@ def _migrated_state(
     state: Mapping[str, Any],
     parameter: nn.Parameter,
     *,
-    operation: Literal["append", "keep"],
+    operation: Literal["append", "keep", "keep_append"],
     addition: Tensor | None = None,
     keep_mask: Tensor | None = None,
 ) -> dict[str, Any]:
@@ -139,10 +139,18 @@ def _migrated_state(
             migrated[state_name] = torch.cat(
                 (value, torch.zeros_like(addition)), dim=0
             )
-        else:
+        elif operation == "keep":
             if keep_mask is None:  # pragma: no cover - internal contract
                 raise RuntimeError("keep state migration requires a keep mask")
             migrated[state_name] = value[keep_mask]
+        else:
+            if addition is None or keep_mask is None:  # pragma: no cover
+                raise RuntimeError(
+                    "keep_append state migration requires additions and a keep mask"
+                )
+            migrated[state_name] = torch.cat(
+                (value[keep_mask], torch.zeros_like(addition)), dim=0
+            )
     return migrated
 
 
@@ -150,7 +158,7 @@ def _prepare_optimizer_states(
     optimizer: torch.optim.Adam,
     old_parameters: Mapping[str, nn.Parameter],
     *,
-    operation: Literal["append", "keep"],
+    operation: Literal["append", "keep", "keep_append"],
     additions: Mapping[str, Tensor] | None = None,
     keep_mask: Tensor | None = None,
 ) -> dict[str, object]:
@@ -316,8 +324,81 @@ def keep_gaussian_parameters(
     )
 
 
+def keep_and_append_gaussian_parameters(
+    model: GaussianModel,
+    optimizer: torch.optim.Adam,
+    keep_mask: Tensor,
+    additions: Mapping[str, Tensor],
+    *,
+    commit_callback: Callable[[], None] | None = None,
+) -> dict[str, nn.Parameter]:
+    """Atomically keep old rows, append new rows, and migrate Adam state.
+
+    Existing moments selected by ``keep_mask`` are preserved. Appended rows
+    receive zero moments. If ``commit_callback`` raises, every model and
+    optimizer reference is rolled back.
+    """
+
+    groups = _validated_parameter_groups(model, optimizer)
+    if not isinstance(keep_mask, Tensor):
+        raise TypeError("keep_mask must be a torch.Tensor")
+    if keep_mask.dtype != torch.bool:
+        raise TypeError("keep_mask must have dtype torch.bool")
+    if keep_mask.shape != (model.num_gaussians,):
+        raise ValueError(
+            f"keep_mask must have shape ({model.num_gaussians},), "
+            f"got {tuple(keep_mask.shape)}"
+        )
+    if keep_mask.device != model.means_world.device:
+        raise ValueError("keep_mask must be on the model device")
+
+    added_count, added_dtype, added_device = model.validate_gaussian_parameter_tensors(
+        additions
+    )
+    old_parameters = model.gaussian_parameter_dict()
+    _, model_dtype, model_device = model.validate_gaussian_parameter_tensors(
+        old_parameters
+    )
+    if added_dtype != model_dtype:
+        raise TypeError("appended Gaussian tensors must match the model dtype")
+    if added_device != model_device:
+        raise ValueError("appended Gaussian tensors must be on the model device")
+
+    new_states = _prepare_optimizer_states(
+        optimizer,
+        old_parameters,
+        operation="keep_append",
+        additions=additions,
+        keep_mask=keep_mask,
+    )
+    if bool(keep_mask.all().item()) and added_count == 0:
+        return old_parameters
+    new_parameters = {
+        name: nn.Parameter(
+            torch.cat(
+                (
+                    old_parameters[name].detach()[keep_mask],
+                    additions[name].detach(),
+                ),
+                dim=0,
+            ),
+            requires_grad=True,
+        )
+        for name in GAUSSIAN_PARAMETER_NAMES
+    }
+    return _commit_parameter_transaction(
+        model,
+        optimizer,
+        groups,
+        new_parameters,
+        new_states,
+        commit_callback=commit_callback,
+    )
+
+
 __all__ = [
     "append_gaussian_parameters",
     "create_optimizer",
+    "keep_and_append_gaussian_parameters",
     "keep_gaussian_parameters",
 ]

@@ -3,14 +3,17 @@
 from gaussian_splatting.training.density_control import (
     GaussianCloneResult,
     GaussianPruneResult,
+    GaussianSplitResult,
     ScreenSpaceDensityStatistics,
     clone_gaussians,
     prune_gaussians,
+    split_gaussians,
 )
 from gaussian_splatting.training.losses import LossResult, total_loss
 from gaussian_splatting.training.optimizer import (
     append_gaussian_parameters,
     create_optimizer,
+    keep_and_append_gaussian_parameters,
     keep_gaussian_parameters,
 )
 from gaussian_splatting.training.schedules import (
@@ -28,6 +31,7 @@ __all__ = [
     "LossResult",
     "GaussianCloneResult",
     "GaussianPruneResult",
+    "GaussianSplitResult",
     "PositionLearningRateScheduler",
     "ScreenSpaceDensityStatistics",
     "EvaluationResult",
@@ -38,7 +42,9 @@ __all__ = [
     "clone_gaussians",
     "create_optimizer",
     "keep_gaussian_parameters",
+    "keep_and_append_gaussian_parameters",
     "position_learning_rate_schedule",
     "prune_gaussians",
+    "split_gaussians",
     "total_loss",
 ]
