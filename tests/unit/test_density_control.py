@@ -169,6 +169,137 @@ def test_reset_preserves_shape_dtype_and_device() -> None:
         assert torch.count_nonzero(value).item() == 0
 
 
+def test_statistics_state_dict_is_detached_and_does_not_alias_runtime() -> None:
+    statistics = ScreenSpaceDensityStatistics(
+        3, dtype=torch.float64, device="cpu"
+    )
+    statistics.position_gradient_accumulator.copy_(torch.tensor([1.0, 2.0, 3.0]))
+    statistics.position_gradient_denominator.copy_(torch.tensor([4, 5, 6]))
+    statistics.max_screen_radius.copy_(torch.tensor([7, 8, 9]))
+
+    state = statistics.state_dict()
+    statistics.reset()
+
+    assert all(not value.requires_grad for value in state.values())
+    torch.testing.assert_close(
+        state["position_gradient_accumulator"],
+        torch.tensor([1.0, 2.0, 3.0], dtype=torch.float64),
+        rtol=0.0,
+        atol=0.0,
+    )
+    torch.testing.assert_close(
+        state["position_gradient_denominator"],
+        torch.tensor([4, 5, 6]),
+        rtol=0.0,
+        atol=0.0,
+    )
+    torch.testing.assert_close(
+        state["max_screen_radius"],
+        torch.tensor([7, 8, 9]),
+        rtol=0.0,
+        atol=0.0,
+    )
+
+
+def test_statistics_load_state_dict_preserves_tensor_identity() -> None:
+    statistics = ScreenSpaceDensityStatistics(
+        3, dtype=torch.float32, device="cpu"
+    )
+    references = (
+        statistics.position_gradient_accumulator,
+        statistics.position_gradient_denominator,
+        statistics.max_screen_radius,
+    )
+    state = {
+        "position_gradient_accumulator": torch.tensor([1.0, 2.0, 3.0]),
+        "position_gradient_denominator": torch.tensor([4, 5, 6]),
+        "max_screen_radius": torch.tensor([7, 8, 9]),
+    }
+
+    statistics.load_state_dict(state)
+
+    assert statistics.position_gradient_accumulator is references[0]
+    assert statistics.position_gradient_denominator is references[1]
+    assert statistics.max_screen_radius is references[2]
+    torch.testing.assert_close(
+        statistics.position_gradient_accumulator,
+        state["position_gradient_accumulator"],
+        rtol=0.0,
+        atol=0.0,
+    )
+    torch.testing.assert_close(
+        statistics.position_gradient_denominator,
+        state["position_gradient_denominator"],
+        rtol=0.0,
+        atol=0.0,
+    )
+    torch.testing.assert_close(
+        statistics.max_screen_radius,
+        state["max_screen_radius"],
+        rtol=0.0,
+        atol=0.0,
+    )
+
+
+@pytest.mark.parametrize(
+    ("mutation", "exception", "message"),
+    [
+        ("missing", ValueError, "missing keys"),
+        ("unexpected", ValueError, "unexpected keys"),
+        ("shape", ValueError, "shape"),
+        ("dtype", TypeError, "dtype"),
+        ("device", ValueError, "device"),
+        ("nonfinite", ValueError, "finite"),
+        ("negative_accumulator", ValueError, "non-negative"),
+        ("negative_denominator", ValueError, "non-negative"),
+        ("negative_radius", ValueError, "non-negative"),
+    ],
+)
+def test_statistics_load_rejects_invalid_state_without_partial_mutation(
+    mutation: str,
+    exception: type[Exception],
+    message: str,
+) -> None:
+    statistics = ScreenSpaceDensityStatistics(
+        2, dtype=torch.float32, device="cpu"
+    )
+    statistics.position_gradient_accumulator.copy_(torch.tensor([10.0, 20.0]))
+    statistics.position_gradient_denominator.copy_(torch.tensor([3, 4]))
+    statistics.max_screen_radius.copy_(torch.tensor([5, 6]))
+    before = statistics.state_dict()
+    state: dict[str, Tensor] = {
+        "position_gradient_accumulator": torch.tensor([1.0, 2.0]),
+        "position_gradient_denominator": torch.tensor([1, 2]),
+        "max_screen_radius": torch.tensor([3, 4]),
+    }
+    if mutation == "missing":
+        del state["max_screen_radius"]
+    elif mutation == "unexpected":
+        state["unexpected"] = torch.zeros(2)
+    elif mutation == "shape":
+        state["position_gradient_accumulator"] = torch.zeros(3)
+    elif mutation == "dtype":
+        state["position_gradient_accumulator"] = torch.zeros(2, dtype=torch.float64)
+    elif mutation == "device":
+        state["position_gradient_accumulator"] = torch.zeros(2, device="meta")
+    elif mutation == "nonfinite":
+        state["position_gradient_accumulator"][0] = float("nan")
+    elif mutation == "negative_accumulator":
+        state["position_gradient_accumulator"][0] = -1.0
+    elif mutation == "negative_denominator":
+        state["position_gradient_denominator"][0] = -1
+    else:
+        state["max_screen_radius"][0] = -1
+
+    with pytest.raises(exception, match=message):
+        statistics.load_state_dict(state)
+
+    for name, expected in before.items():
+        torch.testing.assert_close(
+            getattr(statistics, name), expected, rtol=0.0, atol=0.0
+        )
+
+
 def test_append_and_keep_preserve_gaussian_index_correspondence() -> None:
     statistics = ScreenSpaceDensityStatistics(
         3, dtype=torch.float32, device="cpu"

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import math
 from numbers import Real
-from typing import Any
+from typing import Any, Mapping
 
 import torch
 from torch import Tensor
@@ -228,6 +228,120 @@ class ScreenSpaceDensityStatistics:
             raise ValueError("position_gradient_denominator must be non-negative")
         if torch.any(self.max_screen_radius < 0).item():
             raise ValueError("max_screen_radius must be non-negative")
+
+    def state_dict(self) -> dict[str, Tensor]:
+        """Return detached, non-aliasing tensors for checkpoint serialization."""
+        return {
+            "position_gradient_accumulator": (
+                self.position_gradient_accumulator.detach().clone()
+            ),
+            "position_gradient_denominator": (
+                self.position_gradient_denominator.detach().clone()
+            ),
+            "max_screen_radius": self.max_screen_radius.detach().clone(),
+        }
+
+    def _validated_state_dict(
+        self,
+        state: Mapping[str, Any],
+    ) -> _StatisticsState:
+        if not isinstance(state, Mapping):
+            raise TypeError("density statistics state must be a mapping")
+        expected_keys = {
+            "position_gradient_accumulator",
+            "position_gradient_denominator",
+            "max_screen_radius",
+        }
+        actual_keys = set(state)
+        missing = sorted(expected_keys - actual_keys)
+        unexpected = sorted(
+            actual_keys - expected_keys,
+            key=repr,
+        )
+        if missing or unexpected:
+            details: list[str] = []
+            if missing:
+                details.append(f"missing keys: {missing}")
+            if unexpected:
+                details.append(f"unexpected keys: {unexpected}")
+            raise ValueError(
+                "invalid density statistics state; " + "; ".join(details)
+            )
+
+        expected_shape = (self.num_gaussians,)
+        specifications = (
+            (
+                "position_gradient_accumulator",
+                self.dtype,
+            ),
+            ("position_gradient_denominator", torch.int64),
+            ("max_screen_radius", torch.int64),
+        )
+        validated: dict[str, Tensor] = {}
+        for name, expected_dtype in specifications:
+            value = state[name]
+            if not isinstance(value, Tensor):
+                raise TypeError(f"density statistics state {name!r} must be a Tensor")
+            if value.shape != expected_shape:
+                raise ValueError(
+                    f"density statistics state {name!r} must have shape "
+                    f"{expected_shape}, got {tuple(value.shape)}"
+                )
+            if value.dtype != expected_dtype:
+                raise TypeError(
+                    f"density statistics state {name!r} must have dtype "
+                    f"{expected_dtype}, got {value.dtype}"
+                )
+            if value.device != self.device:
+                raise ValueError(
+                    f"density statistics state {name!r} must be on device "
+                    f"{self.device}, got {value.device}"
+                )
+            if not torch.isfinite(value).all().item():
+                raise ValueError(
+                    f"density statistics state {name!r} must be finite"
+                )
+            if torch.any(value < 0).item():
+                raise ValueError(
+                    f"density statistics state {name!r} must be non-negative"
+                )
+            validated[name] = value.detach().clone()
+        return _StatisticsState(
+            position_gradient_accumulator=validated[
+                "position_gradient_accumulator"
+            ],
+            position_gradient_denominator=validated[
+                "position_gradient_denominator"
+            ],
+            max_screen_radius=validated["max_screen_radius"],
+        )
+
+    def validate_state_dict(self, state: Mapping[str, Any]) -> None:
+        """Validate checkpoint state completely without changing runtime values."""
+        self._validated_state_dict(state)
+
+    def load_state_dict(self, state: Mapping[str, Any]) -> None:
+        """Atomically copy validated checkpoint values into existing tensors."""
+        prepared = self._validated_state_dict(state)
+        previous = self.state_dict()
+        with torch.no_grad():
+            try:
+                self.position_gradient_accumulator.copy_(
+                    prepared.position_gradient_accumulator
+                )
+                self.position_gradient_denominator.copy_(
+                    prepared.position_gradient_denominator
+                )
+                self.max_screen_radius.copy_(prepared.max_screen_radius)
+            except BaseException:
+                self.position_gradient_accumulator.copy_(
+                    previous["position_gradient_accumulator"]
+                )
+                self.position_gradient_denominator.copy_(
+                    previous["position_gradient_denominator"]
+                )
+                self.max_screen_radius.copy_(previous["max_screen_radius"])
+                raise
 
     def accumulate(self, render: RenderResult) -> None:
         """Accumulate gradients and radii from a completed backward pass."""
