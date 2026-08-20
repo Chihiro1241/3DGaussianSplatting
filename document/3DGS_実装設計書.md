@@ -2,15 +2,15 @@
 
 - 基準資料：`3DGS_定式化.tex`、`3D_Gaussian_Splatting_定式化.pdf`
 - 対象：PyTorchによる検証優先の初期実装
-- 文書版：1.4
+- 文書版：1.5
 - 作成日：2026年8月6日
-- 最終更新日：2026年8月8日
+- 最終更新日：2026年8月20日
 
 ## 1. 文書の目的
 
 本書は、`3DGS_定式化.tex`に記載された3D Gaussian Splatting（3DGS）の定式化を、PythonおよびPyTorchによる初期実装へ落とし込むための実装設計書である。
 
-初期実装では、数式とコードの対応関係を追跡しやすくすること、および各計算の正しさを単体テストで検証できることを最優先とする。したがって、原論文の公式実装が採用するCUDAラスタライザ、タイル単位のカリング・ソート、適応的密度制御は初期実装の対象外とし、PyTorchのテンソル演算と自動微分を用いる。
+当初の検証優先baselineでは、数式とコードの対応関係を追跡しやすくすること、および各計算の正しさを単体テストで検証できることを最優先とした。そのためCUDAラスタライザ、タイル単位のカリング・ソートおよび適応的密度制御を対象外とし、Gaussian数を固定してPyTorchのテンソル演算と自動微分を検証した。現在はこのbaselineを既定動作として維持しつつ、Adaptive Density Control（ADC）と不透明度resetを独立したoptional featureとして追加している。
 
 ## 2. 参照資料と優先順位
 
@@ -45,7 +45,7 @@ Codexへは、本書、`3DGS_定式化.tex`および`3D_Gaussian_Splatting_定�
 - PLYおよびチェックポイントの保存・読み込み
 - 数値微分と自動微分の比較を含む単体テスト
 
-### 3.2 初期実装に含めない機能
+### 3.2 当初のbaselineに含めなかった機能
 
 - Gaussianの複製、分割および除去
 - 不透明度の定期的なリセット
@@ -55,9 +55,15 @@ Codexへは、本書、`3DGS_定式化.tex`および`3D_Gaussian_Splatting_定�
 - 公式ビューアとのネットワーク通信
 - OpenGLによるリアルタイム表示
 
-別資料「3DGS Gaussian可視化ツール 仕様書」で定義するGaussian可視化ツールおよび対話的viewerは、将来実装の対象であり、本書が扱う3DGS初期コア実装には含めない。
+この一覧は初期設計時の範囲を示す歴史的記録である。現在はGaussianの複製・分割・除去と不透明度resetを実装済みであり、3.3節のoptional extensionとして扱う。現在も未実装なのは、progressive SH degree、CUDA/C++拡張、タイルベースラスタライザ、公式viewerとの通信、およびOpenGLリアルタイムviewerである。別資料「3DGS Gaussian可視化ツール 仕様書」で定義する可視化ツールは、引き続き本書が扱う3DGSコア実装には含めない。
 
-### 3.3 初期実装の性能上の位置付け
+### 3.3 現在実装済みのoptional extension
+
+`features.adaptive_density_control=true`では、screen-space位置勾配統計に基づくclone・splitと、opacity・screen-space size・world-space sizeに基づくpruneを実行する。6個のGaussian Parameter、Adam stateおよびdensity statisticsを同じGaussian indexで動的にappend/keepするため、学習中のGaussian数`N`は変化する。`features.opacity_reset=true`では、ADCの有効・無効とは独立に定期的な不透明度resetを実行する。
+
+両feature flagの既定値は`false`である。この場合はstatisticsを生成せず、scene extentを計算せず、ADC由来の乱数を消費せず、当初のfixed-Gaussian baselineと同じ学習経路を使用する。
+
+### 3.4 初期実装の性能上の位置付け
 
 初期ラスタライザは、数式検証および小規模データによる動作確認専用とする。Gaussian単位のPythonループを許容するため、`data/`の全100視点を用いた30,000反復を実用的な時間内に完走させることは初期実装の完了要件に含めない。
 
@@ -183,6 +189,7 @@ def world_to_camera(means_world, rotation_cw, translation_cw):
 │       │   └── renderer.py
 │       ├── training/
 │       │   ├── __init__.py
+│       │   ├── density_control.py
 │       │   ├── losses.py
 │       │   ├── optimizer.py
 │       │   ├── schedules.py
@@ -294,6 +301,8 @@ class GaussianModel(nn.Module):
 
 `means_world`、`sh_dc`および`sh_rest`はそのままレンダリングへ使用する。SH係数は異なる学習率を持つ二つの`nn.Parameter`として必ず保持し、単一の`nn.Parameter`やそのスライスとして保持してはならない。その他のrawパラメータは`raw_parameter_transformations()`を介して実パラメータへ変換する。
 
+6個のParameterの第0次元は常に同じGaussian indexを表し、shape tail、dtypeおよびdeviceを一括検証する。ADC transactionは6個すべてを新しいleaf `nn.Parameter`へ原子的に置換し、個別Parameterの`.data`を用いたshape変更は行わない。`num_gaussians`は現在の第0次元から取得するため、ADC有効時には学習中に変化する。
+
 `model.sh_degree`は初期実装では`3`のみ受け付ける。設定読み込み時と`GaussianModel`生成時の双方で検証し、`3`以外の場合は`ValueError`を送出する。
 
 ```python
@@ -337,7 +346,7 @@ torch.equal(
 
 深度が等しい場合は元のGaussian添字を昇順のタイブレークキーとして使用する。Gaussianごとの中間値を`N`個へscatterして`RenderResult`に重複保持してはならない。
 
-`projected.means_screen`は将来の適応的密度制御に利用できるよう、学習時には`retain_grad()`を呼び出せる設計とする。
+`projected.means_screen`はADC統計収集対象の反復だけ`retain_grad()`を呼び出す。backward後の勾配は、depth sort後の行順ではなく`projected.original_indices`を用いて元Gaussian indexへscatterする。
 
 ## 7. ファイル別設計
 
@@ -573,6 +582,20 @@ def total_loss(
 
 `PositionLearningRateScheduler`は現在反復を保持し、`step(iteration)`で`means_world`グループの学習率を更新する。`state_dict()`と`load_state_dict()`を実装し、学習再開時に反復位置を復元する。
 
+`density_control_schedule(config, iteration)`はmutableなlast-event状態を持たないpure policyとする。ADC有効時は`iteration < densify_until_iteration`でstatisticsを収集し、`iteration > densify_from_iteration`、`iteration < densify_until_iteration`、かつ`iteration % densification_interval == 0`でeventを実行する。既定値では統計収集は反復14999まで、eventは600から14900まで100反復間隔となる。
+
+opacity resetは独立したfeature flagで制御し、`iteration < densify_until_iteration`かつ`iteration % opacity_reset_interval == 0`で実行する。白背景では`iteration == densify_from_iteration`でも特別にresetする。screen-spaceおよびworld-space size pruningは`iteration > opacity_reset_interval`のdensity eventでだけ有効とする。
+
+`compute_scene_extent(train_cameras)`はtraining camera centerだけを用い、次の公式実装相当の値を返す。evaluation cameraは含めない。
+
+```text
+C_bar = mean(C_i)
+D = max_i ||C_i - C_bar||_2
+scene_extent = 1.1 * D
+```
+
+clone/split境界は`percent_dense * scene_extent`、world-space prune閾値は`prune_world_scale_fraction * scene_extent`とする。scene extentはTrainer初期化時に一度だけ計算し、Gaussian数が変化しても再計算しない。
+
 ### 7.11 `training/optimizer.py`
 
 `create_optimizer(model, config)`は、次のパラメータグループを持つAdamを生成する。
@@ -588,7 +611,31 @@ def total_loss(
 
 Adamの設定は`betas=(0.9, 0.999)`、`eps=1e-15`、`weight_decay=0`とする。`sh_dc`と`sh_rest`は、6.3節で確定した別々の`nn.Parameter`をそのまま各パラメータグループへ登録する。`sh_coefficients`プロパティの戻り値やそのスライスを最適化器へ登録してはならない。
 
+各named parameter groupは対象Parameterを1個だけ保持する。Gaussian append時は既存`exp_avg`および`exp_avg_sq`を保持して新規行を0で追加し、keep/prune時はParameterと同一のmaskをmomentにも適用する。splitでは親のmomentを除去し、childのmomentを0から開始する。opacity resetではopacity groupだけを新Parameterへ差し替え、`exp_avg`、`exp_avg_sq`および存在する場合の`max_exp_avg_sq`を全行0へresetする。いずれもAdamのscalar `step`とnamed groupおよび現在の学習率を維持し、optimizerを作り直さない。optimizer state未生成時にも不要なstateを生成せず動作する。
+
 `eq:gradient_descent_update`は更新の概念式であり、本番実装では独立関数を作成せず、`torch.optim.Adam.step()`を使用する。
+
+#### 7.11.1 `training/density_control.py`
+
+`ScreenSpaceDensityStatistics`はGaussianごとに次のshape `(N,)`のTensorを保持する。
+
+- `position_gradient_accumulator`: screen-space位置勾配の$x,y$成分のL2 normの累積値。modelと同じfloating dtype/device。
+- `position_gradient_denominator`: 観測回数。`int64`、modelと同じdevice。
+- `max_screen_radius`: statistics window内の最大screen radius。`int64`、modelと同じdevice。
+
+平均位置勾配は`position_gradient_accumulator / position_gradient_denominator`とし、未観測でdenominatorが0のGaussianには0を返す。蓄積では`projected.original_indices`を用いてdepth-sort後の行を元Gaussian indexへ戻す。appendしたGaussianの統計は0から開始し、keep/pruneではParameterと同じmaskで既存統計を保持する。
+
+clone、splitおよびpruneの選択条件は実パラメータとevent開始前までの平均勾配から次のように決める。
+
+- Clone: `mean_gradient >= position_gradient_threshold`かつ`max(actual_scale) <= percent_dense * scene_extent`。選択した親の`means_world`、`raw_quaternions`、`raw_scales`、`raw_opacities`、`sh_dc`、`sh_rest`を変更せず、元index順で末尾へ完全コピーする。親は残し、childのAdam momentとstatisticsは0とする。
+- Split: `mean_gradient >= position_gradient_threshold`かつ`max(actual_scale) > percent_dense * scene_extent`。各親から2 childを生成する。`epsilon ~ N(0, I)`、`offset_local = actual_scale * epsilon`、`offset_world = R(q) offset_local`、`child_mean = parent_mean + offset_world`とし、childの実scaleを`parent_scale / 1.6`とする。rotation・opacity・SHは親をコピーし、親を削除してchildのAdam momentとstatisticsを0とする。
+- Prune: `sigmoid(raw_opacity) < prune_opacity_threshold`、有効時の`max_screen_radius > prune_screen_radius_threshold`、有効時の`max(actual_scale) > prune_world_scale_threshold`のunionを削除する。理由別件数は非排他的に数え、total件数はunionを一度だけ数える。
+
+1回の`run_density_control_event()`は`clone -> split -> prune -> statistics reset`の順に実行し、`1 event = 1 statistics window`とする。cloneとsplitはevent開始前のstatisticsに基づいて相補的なscale条件を使い、新しく追加したGaussianのstatisticsは0であるため同一event内で再densifyしない。pruneはclone/split後の最終集合へ適用する。eventがno-opでも成功時にはstatistics windowをresetする。
+
+不透明度resetでは、実opacityを`alpha_new = min(alpha, opacity_reset_maximum)`とし、既定上限を`0.01`とする。単調性により等価なraw-domain clampを行って新しいleaf `raw_opacities` Parameterへ置換し、opacityのAdam momentsを全行0へresetする。閾値以下で値が変わらないGaussianがあってもmoment resetは実行し、scalar stepは維持する。
+
+model Parameter、optimizer group/state、statisticsは一つのGaussian index transactionとして扱う。入力とstateをmutation前に検証・事前構築し、commit途中で失敗した場合はすべてを復元する。splitとeventでは、乱数消費後の後段処理が失敗した場合にCPUまたは対象CUDA deviceのPyTorch RNG stateもevent開始前へrollbackする。
 
 ### 7.12 `training/trainer.py`
 
@@ -609,8 +656,16 @@ class Trainer:
 5. 真値画像との損失を計算する。
 6. `loss.total.backward()`を呼び出す。
 7. 勾配に`NaN`または`Inf`がないことを検査する。
-8. `optimizer.step()`を呼び出す。
-9. 損失、PSNR、Gaussian数および学習率をログへ記録する。
+8. schedule対象ならscreen-space density statisticsを蓄積する。
+9. schedule対象ならdensity-control eventを実行する。
+10. schedule対象ならopacity resetを実行する。
+11. Parameterに`NaN`または`Inf`がないことを検査する。
+12. `optimizer.step()`を呼び出す。
+13. Parameterに`NaN`または`Inf`がないことを再検査する。
+14. 損失、PSNR、event後のGaussian数および学習率をログへ記録する。
+15. 評価およびcheckpoint保存を行う。
+
+重要部分の順序は`render -> loss -> backward -> statistics accumulate -> density-control event -> opacity reset -> optimizer.step -> logging/evaluation/checkpoint`である。Parameter replacement前の古いgradientは新Parameterへコピーしない。置換されなかったParameterだけが当該反復の通常の`optimizer.step()`対象となる。
 
 全視点を一度ずつ選択した後、視点リストを再度シャッフルする。30,000反復を既定値とする。
 
@@ -729,7 +784,7 @@ python scripts/evaluate.py --data data --checkpoint output/run001/checkpoints/la
 
 `configs/default.yaml`に次の設定を記載する。
 
-`config.py`にはYAMLの各トップレベルキーに対応する`RuntimeConfig`、`DataConfig`、`ModelConfig`、`InitializationConfig`、`RenderingConfig`、`LossConfig`、`TrainingConfig`、`OutputConfig`および`FeatureConfig`を`@dataclass(frozen=True)`として定義し、それらを束ねる`Config`を定義する。未知のキー、必須キーの欠落または型不一致は読み込み時にエラーとし、暗黙の既定値補完は行わない。
+`config.py`にはYAMLの各トップレベルキーに対応する`RuntimeConfig`、`DataConfig`、`ModelConfig`、`InitializationConfig`、`RenderingConfig`、`LossConfig`、`TrainingConfig`、`AdaptiveDensityControlConfig`、`OutputConfig`および`FeatureConfig`を`@dataclass(frozen=True)`として定義し、それらを束ねる`Config`を定義する。未知のキー、必須キーの欠落または型不一致は読み込み時にエラーとし、暗黙の既定値補完は行わない。
 
 ```yaml
 runtime:
@@ -792,6 +847,18 @@ training:
   checkpoint_interval: 5000
   save_best_by: mean_psnr
 
+density_control:
+  densify_from_iteration: 500
+  densify_until_iteration: 15000
+  densification_interval: 100
+  position_gradient_threshold: 0.0002
+  percent_dense: 0.01
+  prune_opacity_threshold: 0.005
+  opacity_reset_interval: 3000
+  opacity_reset_maximum: 0.01
+  prune_screen_radius_threshold: 20.0
+  prune_world_scale_fraction: 0.1
+
 output:
   exist_policy: error
   save_rendered_images: true
@@ -824,6 +891,7 @@ data/
 
 ```python
 {
+    "checkpoint_version": 2,
     "iteration": int,
     "model_state_dict": dict,
     "optimizer_state_dict": dict,
@@ -836,8 +904,13 @@ data/
     "camera_order": list[int],
     "camera_cursor": int,
     "best_mean_psnr": float | None,
+    "density_statistics_state": dict[str, Tensor] | None,
 }
 ```
+
+`density_statistics_state`はADC無効時は`None`、有効時は3個のstatistics Tensorを持つmappingとする。model stateのTensor shapeから保存時点の可変`N`を復元し、Adam stateも同じshapeへ復元する。version keyを持たない旧fixed-Gaussian checkpointはversion 1として読み込み、保存側・再開側ともADCとopacity resetが`false`である場合に限り、旧configに`density_control` sectionがなくても互換性を維持する。
+
+保存対象はmodel、optimizer、scheduler、config、Python RNG、NumPy RNG、PyTorch CPU/CUDA RNG、camera order/cursor、best PSNRおよびdensity statisticsである。statisticsはinterval途中の非zero値も保存し、resume後に同じwindowを継続する。scheduleはiterationからpureに決まるため、`last_densification_iteration`や`last_opacity_reset_iteration`は保存しない。
 
 チェックポイントは`checkpoint_interval`反復ごとに`checkpoints/iteration_00005000.pt`の形式で保存し、同じ内容を`checkpoints/latest.pt`へも保存する。検証時の平均PSNRがそれまでの最高値を上回った場合は`checkpoints/best.pt`も更新する。
 
@@ -871,7 +944,7 @@ output/run001/
     └── evaluation.json
 ```
 
-`config.yaml`には実際に使用した解決済み設定を保存する。`train_log.jsonl`は1行1オブジェクトとし、`iteration`、`loss_total`、`loss_l1`、`loss_dssim`、`psnr`、各学習率、`gaussian_count`および`elapsed_seconds`を記録する。レンダリング画像名は元画像の拡張子を`.png`へ置換したものとする。評価JSONには画像名ごとのPSNRと`mean_psnr`を保存する。
+`config.yaml`には実際に使用した解決済み設定を保存する。`train_log.jsonl`は1行1オブジェクトとし、`iteration`、`loss_total`、`loss_l1`、`loss_dssim`、`psnr`、各学習率、event後の`gaussian_count`および`elapsed_seconds`を記録する。density event時は`density_control_event`、`density_num_gaussians_before`、`density_num_gaussians_after`、`density_num_cloned`、`density_num_split_parents`、`density_num_children_created`、`density_num_pruned_total`、`density_num_low_opacity`、`density_num_large_screen`、`density_num_large_world`を追加する。opacity reset時は`opacity_reset`、`opacity_num_clamped`、`opacity_reset_maximum`を追加する。event/reset反復は通常の`log_interval`外でも1行だけ記録する。レンダリング画像名は元画像の拡張子を`.png`へ置換したものとする。評価JSONには画像名ごとのPSNRと`mean_psnr`を保存する。
 
 出力先が既に存在する場合、`output.exist_policy=error`では開始前にエラーとする。`--resume CHECKPOINT`を指定した場合のみ既存ディレクトリを使用でき、既存ファイルを無条件に上書きしてはならない。`evaluate.py`は`--output`で指定されたJSONへ保存し、標準コマンドでは`metrics/evaluation.json`を使用する。学習中の検証結果は`metrics/validation_XXXXXXXX.json`へ保存する。
 
@@ -886,6 +959,8 @@ output/run001/
 - 入力テンソルの最終次元が仕様と異なる、浮動小数点テンソルのdtypeが`float32`または`float64`以外である、あるいは同一関数の入力dtypeが混在している。
 - クォータニオン、共分散、レンダリング画像または損失に`NaN`/`Inf`が含まれる。
 - 3D共分散または安定化後の2D共分散が、許容誤差を超えて非対称である。
+- ADC有効時にtraining cameraから正のscene extentを計算できない、またはstatisticsのN・dtype・deviceがmodelと一致しない。
+- 学習継続が必要なTrainerのGaussian数が0、またはdensity-control eventが全Gaussianをpruneする。
 
 正定値性は`torch.linalg.eigvalsh()`を用いてデバッグ時またはテスト時に検査する。本番の各反復では計算コストを避けるため、既定では実行しない。
 
@@ -958,6 +1033,8 @@ def test_world_to_camera__eq_world_to_camera():
 5. 保存直前とチェックポイント再読み込み直後のレンダリング画像の最大絶対誤差が`1e-6`以下となる。
 6. 同一のチェックポイントから再開した次の1反復について、選択されたカメラ添字が一致し、更新後の全パラメータの最大絶対誤差が`1e-6`以下となる。
 7. チェックポイント再開前後で`best_mean_psnr`が一致し、再開後の`best.pt`更新判定が同一となる。
+8. clone・split・prune・opacity resetの選択境界、Parameter/Adam/statistics同期、failure rollbackおよびno-opを検証する。
+9. ADC有効時のcontinuous trainingとmid-window checkpointからのresumeで、可変`N`、全Parameter、optimizer/scheduler、statistics、camera samplingおよびPyTorch RNGが一致する。
 
 #### 11.4.1 単一学習視点による過学習fixture
 
@@ -1017,9 +1094,9 @@ def test_world_to_camera__eq_world_to_camera():
 1. Gaussian単位処理のチャンク化
 2. タイル単位のカリングとソート
 3. CUDA/C++拡張
-4. 適応的密度制御
-5. 不透明度リセット
-6. SH次数の段階的増加
+4. SH次数の段階的増加
+
+適応的密度制御と不透明度resetは、このphaseの計画後にoptional PyTorch extensionとして実装済みである。CUDA/C++およびtile rasterizerへの移植は未実装である。
 
 ## 13. 完了条件
 
@@ -1040,7 +1117,7 @@ def test_world_to_camera__eq_world_to_camera():
 - 公式実装では高速なCUDAラスタライザを使用するため、本設計の初期実装とは浮動小数点演算順序およびカリング方法が異なる。画素値の完全一致ではなく、許容誤差を設定して比較する。
 - `clamp`、閾値処理、描画矩形、可視判定、深度ソートおよび早期終了は不連続な処理を含む。勾配テストでは閾値付近の入力を避ける。
 - rawパラメータに対する勾配と、TeX本文で示された実パラメータに対する勾配を混同しない。実際の学習では`exp`、`sigmoid`およびクォータニオン正規化を通したrawパラメータの勾配が更新に用いられる。
-- 初期実装ではGaussian数を固定する。適応的密度制御を導入する際は、`nn.Parameter`の追加・削除に伴ってAdamの状態も同じインデックスで再構成する必要がある。
+- 既定のbaselineではGaussian数を固定する。ADC有効時は`nn.Parameter`の追加・削除に伴ってAdam stateとstatisticsを同じindexで再構成する。low-level primitiveは`N=0`を扱えるが、Trainerは学習継続時の`N=0`をfail-fastし、minimum Gaussian countを暗黙に強制しない。
 
 ## 15. 参照先
 
