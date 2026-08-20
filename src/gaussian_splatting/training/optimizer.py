@@ -101,7 +101,7 @@ def _migrated_state(
     state: Mapping[str, Any],
     parameter: nn.Parameter,
     *,
-    operation: Literal["append", "keep", "keep_append"],
+    operation: Literal["append", "keep", "keep_append", "reset"],
     addition: Tensor | None = None,
     keep_mask: Tensor | None = None,
 ) -> dict[str, Any]:
@@ -143,7 +143,7 @@ def _migrated_state(
             if keep_mask is None:  # pragma: no cover - internal contract
                 raise RuntimeError("keep state migration requires a keep mask")
             migrated[state_name] = value[keep_mask]
-        else:
+        elif operation == "keep_append":
             if addition is None or keep_mask is None:  # pragma: no cover
                 raise RuntimeError(
                     "keep_append state migration requires additions and a keep mask"
@@ -151,6 +151,8 @@ def _migrated_state(
             migrated[state_name] = torch.cat(
                 (value[keep_mask], torch.zeros_like(addition)), dim=0
             )
+        else:
+            migrated[state_name] = torch.zeros_like(value)
     return migrated
 
 
@@ -158,7 +160,7 @@ def _prepare_optimizer_states(
     optimizer: torch.optim.Adam,
     old_parameters: Mapping[str, nn.Parameter],
     *,
-    operation: Literal["append", "keep", "keep_append"],
+    operation: Literal["append", "keep", "keep_append", "reset"],
     additions: Mapping[str, Tensor] | None = None,
     keep_mask: Tensor | None = None,
 ) -> dict[str, object]:
@@ -269,6 +271,70 @@ def append_gaussian_parameters(
         new_states,
         commit_callback=commit_callback,
     )
+
+
+def replace_named_gaussian_parameter(
+    model: GaussianModel,
+    optimizer: torch.optim.Adam,
+    name: str,
+    replacement: Tensor,
+    *,
+    commit_callback: Callable[[], None] | None = None,
+) -> nn.Parameter:
+    """Replace one same-shaped Parameter and zero all of its Adam moments.
+
+    Scalar state is preserved. No state is created when the old Parameter has
+    none. A callback failure rolls the model, parameter group, and state back
+    to their original references.
+    """
+    groups = _validated_parameter_groups(model, optimizer)
+    if not isinstance(name, str) or name not in GAUSSIAN_PARAMETER_NAMES:
+        raise ValueError(f"unknown Gaussian parameter name: {name!r}")
+    if not isinstance(replacement, Tensor):
+        raise TypeError("replacement must be a torch.Tensor")
+
+    old_parameters = model.gaussian_parameter_dict()
+    candidate_tensors: dict[str, Tensor] = dict(old_parameters)
+    candidate_tensors[name] = replacement
+    model.validate_gaussian_parameter_tensors(candidate_tensors)
+    old_parameter = old_parameters[name]
+    if replacement.shape != old_parameter.shape:
+        raise ValueError(
+            f"replacement shape {tuple(replacement.shape)} does not match "
+            f"parameter shape {tuple(old_parameter.shape)}"
+        )
+
+    old_state = optimizer.state.get(old_parameter, _NO_STATE)
+    new_state: object = _NO_STATE
+    if old_state is not _NO_STATE:
+        new_state = _migrated_state(
+            old_state,
+            old_parameter,
+            operation="reset",
+        )
+    new_parameter = nn.Parameter(replacement.detach().clone(), requires_grad=True)
+    new_parameters = dict(old_parameters)
+    new_parameters[name] = new_parameter
+
+    model_replaced = False
+    try:
+        model.replace_gaussian_parameters(new_parameters)
+        model_replaced = True
+        groups[name]["params"][0] = new_parameter
+        optimizer.state.pop(old_parameter, None)
+        if new_state is not _NO_STATE:
+            optimizer.state[new_parameter] = new_state
+        if commit_callback is not None:
+            commit_callback()
+    except BaseException:
+        optimizer.state.pop(new_parameter, None)
+        groups[name]["params"][0] = old_parameter
+        if old_state is not _NO_STATE:
+            optimizer.state[old_parameter] = old_state
+        if model_replaced:
+            model.replace_gaussian_parameters(old_parameters)
+        raise
+    return new_parameter
 
 
 def keep_gaussian_parameters(
@@ -401,4 +467,5 @@ __all__ = [
     "create_optimizer",
     "keep_and_append_gaussian_parameters",
     "keep_gaussian_parameters",
+    "replace_named_gaussian_parameter",
 ]

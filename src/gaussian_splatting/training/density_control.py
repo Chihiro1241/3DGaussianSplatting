@@ -20,6 +20,7 @@ from gaussian_splatting.training.optimizer import (
     append_gaussian_parameters,
     keep_and_append_gaussian_parameters,
     keep_gaussian_parameters,
+    replace_named_gaussian_parameter,
 )
 
 
@@ -47,6 +48,15 @@ class GaussianPruneResult:
     num_low_opacity: int
     num_large_screen: int
     num_large_world: int
+
+
+@dataclass(frozen=True)
+class GaussianOpacityResetResult:
+    """Summary of one explicit Gaussian opacity reset."""
+
+    num_gaussians: int
+    num_clamped: int
+    maximum_opacity: float
 
 
 @dataclass(frozen=True)
@@ -564,6 +574,62 @@ def clone_gaussians(
     return result
 
 
+def reset_gaussian_opacity(
+    model: GaussianModel,
+    optimizer: torch.optim.Adam,
+    *,
+    maximum_opacity: Real = 0.01,
+) -> GaussianOpacityResetResult:
+    """Clamp actual opacity from above and replace its raw Parameter.
+
+    Since sigmoid and logit are monotonic,
+    ``logit(min(sigmoid(raw), maximum))`` equals
+    ``min(raw, logit(maximum))``. The raw-domain form preserves already-small
+    finite raw values without a potentially saturating sigmoid/logit round trip.
+    Every Adam moment for the opacity Parameter is reset even when no row is
+    clamped.
+    """
+    if not isinstance(model, GaussianModel):
+        raise TypeError("model must be a GaussianModel")
+    if not isinstance(optimizer, torch.optim.Adam):
+        raise TypeError("optimizer must be torch.optim.Adam")
+    maximum_opacity_value = _validated_threshold(
+        maximum_opacity,
+        "maximum_opacity",
+        allow_none=False,
+        unit_interval=True,
+    )
+    if maximum_opacity_value is None:  # pragma: no cover - validated above
+        raise RuntimeError("maximum opacity validation returned None")
+    if not 0.0 < maximum_opacity_value < 1.0:
+        raise ValueError("maximum_opacity must lie strictly between 0 and 1")
+
+    with torch.no_grad():
+        raw_opacities = model.raw_opacities.detach()
+        maximum = raw_opacities.new_tensor(maximum_opacity_value)
+        raw_maximum = torch.logit(maximum)
+        if not torch.isfinite(raw_maximum).item():
+            raise ValueError(
+                "maximum_opacity is not representable without logit saturation "
+                f"in dtype {raw_opacities.dtype}"
+            )
+        num_clamped = int((raw_opacities > raw_maximum).sum().item())
+        replacement = torch.minimum(raw_opacities, raw_maximum)
+
+    num_gaussians = model.num_gaussians
+    replace_named_gaussian_parameter(
+        model,
+        optimizer,
+        "raw_opacities",
+        replacement,
+    )
+    return GaussianOpacityResetResult(
+        num_gaussians=num_gaussians,
+        num_clamped=num_clamped,
+        maximum_opacity=maximum_opacity_value,
+    )
+
+
 def _rng_state(device: torch.device) -> Tensor:
     if device.type == "cpu":
         return torch.get_rng_state()
@@ -1000,11 +1066,13 @@ def run_density_control_event(
 __all__ = [
     "GaussianCloneResult",
     "GaussianDensityControlResult",
+    "GaussianOpacityResetResult",
     "GaussianPruneResult",
     "GaussianSplitResult",
     "ScreenSpaceDensityStatistics",
     "clone_gaussians",
     "prune_gaussians",
+    "reset_gaussian_opacity",
     "run_density_control_event",
     "split_gaussians",
 ]
