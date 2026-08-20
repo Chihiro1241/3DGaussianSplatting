@@ -58,6 +58,18 @@ training:
   checkpoint_interval: 1000
   save_best_by: mean_psnr
 
+density_control:
+  densify_from_iteration: 500
+  densify_until_iteration: 15000
+  densification_interval: 100
+  position_gradient_threshold: 0.0002
+  percent_dense: 0.01
+  prune_opacity_threshold: 0.005
+  opacity_reset_interval: 3000
+  opacity_reset_maximum: 0.01
+  prune_screen_radius_threshold: 20.0
+  prune_world_scale_fraction: 0.1
+
 output:
   exist_policy: error
   save_rendered_images: false
@@ -66,4 +78,3 @@ features:
   adaptive_density_control: false
   opacity_reset: false
   progressive_sh_degree: false
-

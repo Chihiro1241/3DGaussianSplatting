@@ -22,7 +22,12 @@ from gaussian_splatting.training.optimizer import (
     replace_named_gaussian_parameter,
 )
 from gaussian_splatting.training.schedules import (
+    DensityControlEventParameters,
+    DensityControlScheduleDecision,
     PositionLearningRateScheduler,
+    compute_scene_extent,
+    density_control_event_parameters,
+    density_control_schedule,
     position_learning_rate_schedule,
 )
 from gaussian_splatting.training.trainer import (
@@ -39,6 +44,8 @@ __all__ = [
     "GaussianOpacityResetResult",
     "GaussianPruneResult",
     "GaussianSplitResult",
+    "DensityControlEventParameters",
+    "DensityControlScheduleDecision",
     "PositionLearningRateScheduler",
     "ScreenSpaceDensityStatistics",
     "EvaluationResult",
@@ -47,7 +54,10 @@ __all__ = [
     "append_gaussian_parameters",
     "camera_to",
     "clone_gaussians",
+    "compute_scene_extent",
     "create_optimizer",
+    "density_control_event_parameters",
+    "density_control_schedule",
     "keep_gaussian_parameters",
     "keep_and_append_gaussian_parameters",
     "position_learning_rate_schedule",
