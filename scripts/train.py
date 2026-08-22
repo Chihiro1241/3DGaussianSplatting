@@ -33,6 +33,9 @@ from gaussian_splatting.training.density_control import (
     ScreenSpaceDensityStatistics,
 )
 from gaussian_splatting.training.optimizer import create_optimizer
+from gaussian_splatting.training.screen_radius_diagnostics import (
+    ScreenRadiusDiagnostic,
+)
 from gaussian_splatting.training.schedules import PositionLearningRateScheduler
 from gaussian_splatting.training.trainer import Trainer
 
@@ -49,6 +52,8 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="CHECKPOINT",
         help="resume from a .pt checkpoint instead of initializing a new model",
     )
+    parser.add_argument("--diagnose-screen-radius-start", type=int, default=None)
+    parser.add_argument("--diagnose-screen-radius-end", type=int, default=None)
     return parser
 
 
@@ -94,6 +99,12 @@ def _prepare_output(path: Path, *, resume: bool, config: object) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if (args.diagnose_screen_radius_start is None) != (
+        args.diagnose_screen_radius_end is None
+    ):
+        raise ValueError(
+            "screen-radius diagnostic start and end must be supplied together"
+        )
     config = load_config(args.config)
     if args.output.exists() and args.resume is None:
         raise FileExistsError(
@@ -167,6 +178,16 @@ def main(argv: list[str] | None = None) -> int:
         camera_cursor=camera_cursor,
         best_mean_psnr=best_mean_psnr,
         density_statistics=density_statistics,
+        screen_radius_diagnostic=(
+            ScreenRadiusDiagnostic(
+                args.output / "diagnostics",
+                start=args.diagnose_screen_radius_start,
+                end=args.diagnose_screen_radius_end,
+            )
+            if args.diagnose_screen_radius_start is not None
+            and args.diagnose_screen_radius_end is not None
+            else None
+        ),
     )
     trainer.train()
     return 0

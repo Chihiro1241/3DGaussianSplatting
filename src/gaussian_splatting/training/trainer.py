@@ -33,6 +33,9 @@ from gaussian_splatting.training.schedules import (
     density_control_event_parameters,
     density_control_schedule,
 )
+from gaussian_splatting.training.screen_radius_diagnostics import (
+    ScreenRadiusDiagnostic,
+)
 
 
 @dataclass(frozen=True)
@@ -121,6 +124,7 @@ class Trainer:
         camera_cursor: int = 0,
         best_mean_psnr: float | None = None,
         density_statistics: ScreenSpaceDensityStatistics | None = None,
+        screen_radius_diagnostic: ScreenRadiusDiagnostic | None = None,
     ) -> None:
         if not train_cameras or not evaluation_cameras:
             raise ValueError("training and evaluation camera sets must both be non-empty")
@@ -166,6 +170,7 @@ class Trainer:
                 )
             self.scene_extent = None
         self.density_statistics = density_statistics
+        self.screen_radius_diagnostic = screen_radius_diagnostic
         self._started_at = time.monotonic()
 
         if camera_order is None:
@@ -247,6 +252,14 @@ class Trainer:
             if self.density_statistics is None:  # pragma: no cover - constructor
                 raise RuntimeError("density statistics are unavailable")
             self.density_statistics.accumulate(render)
+            if self.screen_radius_diagnostic is not None:
+                self.screen_radius_diagnostic.observe(
+                    render,
+                    iteration=iteration,
+                    view_name=camera.image_name,
+                    model=self.model,
+                    statistics=self.density_statistics,
+                )
         density_control_result: GaussianDensityControlResult | None = None
         if decision.run_density_control_event:
             if self.density_statistics is None or self.scene_extent is None:

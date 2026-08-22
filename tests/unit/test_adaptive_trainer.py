@@ -354,6 +354,11 @@ def test_execution_order_is_accumulate_event_reset_then_optimizer_step(
         statistics.reset()
         return _no_op_density_result(model.num_gaussians)
 
+    class DiagnosticSpy:
+        def observe(self, *args: object, **kwargs: object) -> None:
+            assert torch.any(statistics.position_gradient_denominator > 0)
+            order.append("diagnostic")
+
     def reset(*args: object, **kwargs: object) -> GaussianOpacityResetResult:
         order.append("reset")
         return GaussianOpacityResetResult(model.num_gaussians, 0, 0.01)
@@ -368,12 +373,14 @@ def test_execution_order_is_accumulate_event_reset_then_optimizer_step(
     monkeypatch.setattr(trainer_module, "run_density_control_event", event)
     monkeypatch.setattr(trainer_module, "reset_gaussian_opacity", reset)
     monkeypatch.setattr(trainer.optimizer, "step", step)
+    trainer.screen_radius_diagnostic = DiagnosticSpy()  # type: ignore[assignment]
 
     trainer.train_step(trainer.train_cameras[0], iteration=2)
 
     assert order == [
         "finite_gradients",
         "accumulate",
+        "diagnostic",
         "event",
         "reset",
         "finite_parameters",
