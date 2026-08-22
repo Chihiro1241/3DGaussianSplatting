@@ -298,7 +298,7 @@ def load_checkpoint(
         if cuda_states is not None:
             if not torch.cuda.is_available():
                 raise RuntimeError("checkpoint contains CUDA RNG state but CUDA is unavailable")
-            torch.cuda.set_rng_state_all(cuda_states)
+            torch.cuda.set_rng_state_all([cuda_state.cpu() for cuda_state in cuda_states])
     return state
 
 

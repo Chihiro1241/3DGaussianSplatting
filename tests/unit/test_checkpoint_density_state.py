@@ -506,10 +506,46 @@ def test_statistics_checkpoint_preserves_all_rng_restore_semantics(
         )
 
 
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is unavailable")
+def test_cuda_mapped_checkpoint_restores_cuda_rng_state(tmp_path: Path) -> None:
+    config = _config()
+    model = _model(2).to("cuda")
+    optimizer, scheduler = _training_objects(model, config)
+    statistics = ScreenSpaceDensityStatistics.for_model(model)
+    path = tmp_path / "cuda_checkpoint.pt"
+    _save(
+        path,
+        model=model,
+        optimizer=optimizer,
+        scheduler=scheduler,
+        config=config,
+        statistics=statistics,
+        iteration=1,
+    )
+
+    load_checkpoint(
+        path,
+        model=model,
+        optimizer=optimizer,
+        scheduler=scheduler,
+        density_statistics=statistics,
+        map_location="cuda",
+        restore_random_state=True,
+    )
+
+
 def test_legacy_version_1_fixed_checkpoint_and_config_are_supported(
     tmp_path: Path,
 ) -> None:
-    config = _config()
+    base_config = _config()
+    config = replace(
+        base_config,
+        features=replace(
+            base_config.features,
+            adaptive_density_control=False,
+            opacity_reset=False,
+        ),
+    )
     model = _model(2)
     optimizer, scheduler = _training_objects(model, config)
     path = tmp_path / "legacy.pt"
