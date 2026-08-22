@@ -411,6 +411,8 @@ class Trainer:
                     "density_control_event": True,
                     "density_num_gaussians_before": density.num_gaussians_before,
                     "density_num_gaussians_after": density.num_gaussians_after,
+                    "density_num_observed": density.num_observed,
+                    "density_num_high_gradient": density.num_high_gradient,
                     "density_num_cloned": density.num_cloned,
                     "density_num_split_parents": density.num_split_parents,
                     "density_num_children_created": density.num_children_created,

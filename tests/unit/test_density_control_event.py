@@ -127,6 +127,8 @@ def test_event_clones_and_splits_pre_event_gaussians_exactly_once(
     )
 
     assert result.num_gaussians_before == 3
+    assert result.num_observed == 3
+    assert result.num_high_gradient == 2
     assert result.num_cloned == 1
     assert result.num_split_parents == 1
     assert result.num_children_created == 2

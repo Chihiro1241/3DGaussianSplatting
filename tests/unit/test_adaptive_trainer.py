@@ -161,6 +161,8 @@ def _no_op_density_result(count: int) -> GaussianDensityControlResult:
         split_result=GaussianSplitResult(count, count, 0, 0),
         prune_result=GaussianPruneResult(count, count, 0, 0, 0, 0),
         statistics_reset=True,
+        num_observed=count,
+        num_high_gradient=0,
     )
 
 

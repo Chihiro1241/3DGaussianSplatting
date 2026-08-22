@@ -79,6 +79,8 @@ class GaussianDensityControlResult:
     split_result: GaussianSplitResult
     prune_result: GaussianPruneResult
     statistics_reset: bool
+    num_observed: int
+    num_high_gradient: int
 
     @property
     def num_cloned(self) -> int:
@@ -1121,6 +1123,13 @@ def run_density_control_event(
     )
     snapshot = _capture_density_control_snapshot(model, optimizer, statistics)
     num_gaussians_before = model.num_gaussians
+    with torch.no_grad():
+        observed = statistics.position_gradient_denominator > 0
+        high_gradient = observed & (
+            statistics.mean_position_gradient() >= gradient_threshold_value
+        )
+        num_observed = int(observed.sum().item())
+        num_high_gradient = int(high_gradient.sum().item())
 
     try:
         clone_result = clone_gaussians(
@@ -1178,6 +1187,8 @@ def run_density_control_event(
             split_result=split_result,
             prune_result=prune_result,
             statistics_reset=True,
+            num_observed=num_observed,
+            num_high_gradient=num_high_gradient,
         )
     except BaseException:
         _restore_density_control_snapshot(

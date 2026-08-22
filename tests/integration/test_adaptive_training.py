@@ -288,6 +288,8 @@ def test_event_logging_and_trainer_checkpoint_capture_post_event_state(
     assert event_record["density_control_event"] is True
     assert event_record["density_num_gaussians_before"] == 2
     assert event_record["density_num_gaussians_after"] == 4
+    assert event_record["density_num_observed"] == 2
+    assert event_record["density_num_high_gradient"] == 2
     assert event_record["density_num_cloned"] == 2
     assert event_record["density_num_split_parents"] == 0
     assert event_record["density_num_children_created"] == 0
