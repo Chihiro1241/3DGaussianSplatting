@@ -14,7 +14,7 @@ model:
   epsilon_q: 1.0e-8
 
 initialization:
-  num_gaussians: 1000
+  num_gaussians: 20000
   aabb_half_extent: [1.0, 1.0, 1.0]
   initial_rgb: [0.5, 0.5, 0.5]
   neighbor_count: 3
@@ -39,7 +39,7 @@ loss:
   ssim_k2: 0.03
 
 training:
-  iterations: 30000
+  iterations: 5000
   views_per_iteration: 1
   optimizer: adam
   adam_beta1: 0.9
@@ -75,6 +75,6 @@ output:
   save_rendered_images: true
 
 features:
-  adaptive_density_control: false
-  opacity_reset: false
+  adaptive_density_control: true
+  opacity_reset: true
   progressive_sh_degree: false

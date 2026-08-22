@@ -45,6 +45,11 @@ def _tiny_config() -> Config:
             evaluation_interval=4,
             checkpoint_interval=4,
         ),
+        features=replace(
+            config.features,
+            adaptive_density_control=False,
+            opacity_reset=False,
+        ),
         output=replace(config.output, save_rendered_images=False),
     )
 
