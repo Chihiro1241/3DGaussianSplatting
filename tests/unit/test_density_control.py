@@ -16,6 +16,8 @@ def _render_result(
     radii: list[int],
     dtype: torch.dtype,
     device: torch.device,
+    height: int = 2,
+    width: int = 2,
 ) -> RenderResult:
     visible_count = len(original_indices)
     base_means = torch.arange(
@@ -48,8 +50,8 @@ def _render_result(
         ),
     )
     return RenderResult(
-        image=floating_zeros(3, 1, 1),
-        final_transmittance=floating_zeros(1, 1),
+        image=floating_zeros(3, height, width),
+        final_transmittance=floating_zeros(height, width),
         projected=projected,
         visible_mask=visible_mask,
     )
@@ -135,6 +137,56 @@ def test_multiple_observations_mean_zero_observation_and_max_radius() -> None:
     torch.testing.assert_close(
         statistics.max_screen_radius,
         torch.tensor([0, 9, 0], dtype=torch.int64),
+    )
+
+
+def test_accumulate_converts_pixel_gradient_to_square_viewport_coordinates() -> None:
+    statistics = ScreenSpaceDensityStatistics(
+        1, dtype=torch.float64, device="cpu"
+    )
+    render = _render_result(
+        num_gaussians=1,
+        original_indices=[0],
+        radii=[1],
+        dtype=torch.float64,
+        device=torch.device("cpu"),
+        height=800,
+        width=800,
+    )
+    _backward_with_gradient(
+        render, torch.tensor([[3.0, 4.0]], dtype=torch.float64)
+    )
+
+    statistics.accumulate(render)
+
+    torch.testing.assert_close(
+        statistics.position_gradient_accumulator,
+        torch.tensor([2000.0], dtype=torch.float64),
+    )
+
+
+def test_accumulate_scales_non_square_viewport_axes_before_norm() -> None:
+    statistics = ScreenSpaceDensityStatistics(
+        1, dtype=torch.float64, device="cpu"
+    )
+    render = _render_result(
+        num_gaussians=1,
+        original_indices=[0],
+        radii=[1],
+        dtype=torch.float64,
+        device=torch.device("cpu"),
+        height=4,
+        width=8,
+    )
+    _backward_with_gradient(
+        render, torch.tensor([[3.0, 4.0]], dtype=torch.float64)
+    )
+
+    statistics.accumulate(render)
+
+    torch.testing.assert_close(
+        statistics.position_gradient_accumulator,
+        torch.tensor([208.0**0.5], dtype=torch.float64),
     )
 
 

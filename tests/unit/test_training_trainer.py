@@ -30,6 +30,11 @@ def _tiny_config() -> Config:
             evaluation_interval=3,
             checkpoint_interval=3,
         ),
+        features=replace(
+            config.features,
+            adaptive_density_control=False,
+            opacity_reset=False,
+        ),
         output=replace(config.output, save_rendered_images=False),
     )
 
@@ -169,8 +174,12 @@ def test_train_step_accumulates_optional_density_statistics(
     expected_accumulator = torch.zeros_like(
         statistics.position_gradient_accumulator
     )
+    height, width = result.render.image.shape[-2:]
+    viewport_scale = screen_gradient.new_tensor(
+        [width / 2.0, height / 2.0]
+    )
     expected_accumulator[indices] = torch.linalg.vector_norm(
-        screen_gradient, dim=-1
+        screen_gradient * viewport_scale, dim=-1
     )
     expected_denominator = torch.zeros_like(
         statistics.position_gradient_denominator

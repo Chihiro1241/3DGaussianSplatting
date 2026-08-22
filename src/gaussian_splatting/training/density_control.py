@@ -384,7 +384,14 @@ class ScreenSpaceDensityStatistics:
             )
 
         with torch.no_grad():
-            gradient_norm = torch.linalg.vector_norm(gradient.detach(), dim=-1)
+            height, width = render.image.shape[-2:]
+            viewport_scale = gradient.new_tensor(
+                [width / 2.0, height / 2.0]
+            )
+            viewport_gradient = gradient.detach() * viewport_scale
+            gradient_norm = torch.linalg.vector_norm(
+                viewport_gradient, dim=-1
+            )
             if not torch.isfinite(gradient_norm).all():
                 raise ValueError("screen-space gradient contains non-finite values")
 
