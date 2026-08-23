@@ -1,4 +1,4 @@
-"""Evaluate checkpoint PSNR on train or test views."""
+"""Evaluate checkpoint PSNR, SSIM, and VGG LPIPS on train or test views."""
 
 from __future__ import annotations
 
@@ -31,10 +31,18 @@ def main(argv: list[str] | None = None) -> int:
     cameras = load_blender_dataset(args.data, config)
     train_cameras, test_cameras = split_cameras(cameras, config.data.test_every)
     selected = train_cameras if args.split == "train" else test_cameras
-    evaluate_camera_set(model, GaussianRenderer(config.rendering), selected, args.output)
+    evaluate_camera_set(
+        model,
+        GaussianRenderer(config.rendering),
+        selected,
+        args.output,
+        ssim_window_size=config.loss.ssim_window_size,
+        ssim_sigma=config.loss.ssim_sigma,
+        ssim_k1=config.loss.ssim_k1,
+        ssim_k2=config.loss.ssim_k2,
+    )
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

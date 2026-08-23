@@ -14,6 +14,7 @@ import torch
 
 from gaussian_splatting.config import Config, load_config
 from gaussian_splatting.data.camera import Camera
+from gaussian_splatting.evaluation.metrics import LPIPSMetric
 from gaussian_splatting.evaluation.runner import evaluate_camera_set
 from gaussian_splatting.io.checkpoint import (
     load_checkpoint,
@@ -30,6 +31,11 @@ from scripts.train import _prepare_output
 
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+class _TestPerceptualDistance(torch.nn.Module):
+    def forward(self, rendered: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        return (rendered - target).square().mean(dim=(1, 2, 3), keepdim=True)
 
 
 def _tiny_config() -> Config:
@@ -137,12 +143,41 @@ def test_checkpoint_render_round_trip_and_evaluation_json(
     assert float((before - after).abs().max()) <= 1.0e-6
 
     output_json = tmp_path / "metrics" / "evaluation.json"
+    second_camera = _camera(0.35, "view_b.png")
     evaluation = evaluate_camera_set(
-        restored, renderer, [camera], output_json
+        restored,
+        renderer,
+        [camera, second_camera],
+        output_json,
+        ssim_window_size=config.loss.ssim_window_size,
+        ssim_sigma=config.loss.ssim_sigma,
+        ssim_k1=config.loss.ssim_k1,
+        ssim_k2=config.loss.ssim_k2,
+        lpips_metric=LPIPSMetric(
+            device="cpu", network=_TestPerceptualDistance()
+        ),
     )
     payload = json.loads(output_json.read_text(encoding="utf-8"))
-    assert payload["images"] == evaluation.per_image_psnr
+    assert payload["images"] == {
+        name: {
+            "psnr": metrics.psnr,
+            "ssim": metrics.ssim,
+            "lpips": metrics.lpips,
+        }
+        for name, metrics in evaluation.images.items()
+    }
     assert payload["mean_psnr"] == evaluation.mean_psnr
+    assert payload["mean_ssim"] == evaluation.mean_ssim
+    assert payload["mean_lpips"] == evaluation.mean_lpips
+    assert evaluation.mean_psnr == pytest.approx(
+        np.mean(list(evaluation.per_image_psnr.values()))
+    )
+    assert evaluation.mean_ssim == pytest.approx(
+        np.mean([metrics.ssim for metrics in evaluation.images.values()])
+    )
+    assert evaluation.mean_lpips == pytest.approx(
+        np.mean([metrics.lpips for metrics in evaluation.images.values()])
+    )
     assert np.isfinite(evaluation.mean_psnr)
 
 

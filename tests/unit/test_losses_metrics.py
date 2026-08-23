@@ -3,7 +3,7 @@ from __future__ import annotations
 import torch
 import pytest
 
-from gaussian_splatting.evaluation.metrics import mean_psnr, mse, psnr
+from gaussian_splatting.evaluation.metrics import LPIPSMetric, mean_psnr, mse, psnr
 from gaussian_splatting.training.losses import (
     dssim_loss,
     l1_loss,
@@ -30,6 +30,22 @@ def test_ssim_and_dssim_identical_images__eq_ssim__eq_dssim_loss() -> None:
     image = torch.rand((3, 16, 16), dtype=torch.float64)
     torch.testing.assert_close(ssim(image, image), torch.tensor(1.0, dtype=torch.float64))
     torch.testing.assert_close(dssim_loss(image, image), torch.tensor(0.0, dtype=torch.float64))
+
+
+class _MeanSquaredPerceptualDistance(torch.nn.Module):
+    def forward(self, rendered: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        return (rendered - target).square().mean(dim=(1, 2, 3), keepdim=True)
+
+
+def test_lpips_metric_identical_images_and_input_range_conversion() -> None:
+    metric = LPIPSMetric(device="cpu", network=_MeanSquaredPerceptualDistance())
+    image = torch.rand((3, 16, 16), dtype=torch.float32)
+    torch.testing.assert_close(metric(image, image), torch.tensor(0.0))
+
+    zeros = torch.zeros_like(image)
+    ones = torch.ones_like(image)
+    # [0, 1] inputs become [-1, 1], so their squared distance is four.
+    torch.testing.assert_close(metric(zeros, ones), torch.tensor(4.0))
 
 
 def test_ssim_constants__eq_ssim_constants() -> None:
