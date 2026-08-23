@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -89,6 +90,20 @@ class TrainingConfig:
 
 
 @dataclass(frozen=True)
+class AdaptiveDensityControlConfig:
+    densify_from_iteration: int
+    densify_until_iteration: int
+    densification_interval: int
+    position_gradient_threshold: float
+    percent_dense: float
+    prune_opacity_threshold: float
+    opacity_reset_interval: int
+    opacity_reset_maximum: float
+    prune_screen_radius_threshold: float
+    prune_world_scale_fraction: float
+
+
+@dataclass(frozen=True)
 class OutputConfig:
     exist_policy: str
     save_rendered_images: bool
@@ -110,6 +125,7 @@ class Config:
     rendering: RenderingConfig
     loss: LossConfig
     training: TrainingConfig
+    density_control: AdaptiveDensityControlConfig
     output: OutputConfig
     features: FeatureConfig
 
@@ -187,6 +203,21 @@ _SCHEMA: dict[str, tuple[type[Any], dict[str, object]]] = {
             "evaluation_interval": int,
             "checkpoint_interval": int,
             "save_best_by": str,
+        },
+    ),
+    "density_control": (
+        AdaptiveDensityControlConfig,
+        {
+            "densify_from_iteration": int,
+            "densify_until_iteration": int,
+            "densification_interval": int,
+            "position_gradient_threshold": float,
+            "percent_dense": float,
+            "prune_opacity_threshold": float,
+            "opacity_reset_interval": int,
+            "opacity_reset_maximum": float,
+            "prune_screen_radius_threshold": float,
+            "prune_world_scale_fraction": float,
         },
     ),
     "output": (
@@ -358,12 +389,67 @@ def _validate_config(config: Config) -> None:
     _require(training.save_best_by == "mean_psnr",
              "training.save_best_by must be mean_psnr")
 
+    density_control = config.density_control
+    _require(
+        density_control.densify_from_iteration >= 0,
+        "density_control.densify_from_iteration must be non-negative",
+    )
+    _require(
+        density_control.densify_until_iteration
+        > density_control.densify_from_iteration,
+        "density_control.densify_until_iteration must be greater than "
+        "densify_from_iteration",
+    )
+    _require(
+        density_control.densification_interval > 0,
+        "density_control.densification_interval must be positive",
+    )
+    _require(
+        density_control.opacity_reset_interval > 0,
+        "density_control.opacity_reset_interval must be positive",
+    )
+    finite_fields = {
+        "position_gradient_threshold": density_control.position_gradient_threshold,
+        "percent_dense": density_control.percent_dense,
+        "prune_opacity_threshold": density_control.prune_opacity_threshold,
+        "opacity_reset_maximum": density_control.opacity_reset_maximum,
+        "prune_screen_radius_threshold": (
+            density_control.prune_screen_radius_threshold
+        ),
+        "prune_world_scale_fraction": density_control.prune_world_scale_fraction,
+    }
+    for field_name, value in finite_fields.items():
+        _require(
+            math.isfinite(value),
+            f"density_control.{field_name} must be finite",
+        )
+    _require(
+        density_control.position_gradient_threshold >= 0.0,
+        "density_control.position_gradient_threshold must be non-negative",
+    )
+    _require(
+        0.0 < density_control.percent_dense <= 1.0,
+        "density_control.percent_dense must satisfy 0 < value <= 1",
+    )
+    _require(
+        0.0 <= density_control.prune_opacity_threshold < 1.0,
+        "density_control.prune_opacity_threshold must satisfy 0 <= value < 1",
+    )
+    _require(
+        0.0 < density_control.opacity_reset_maximum < 1.0,
+        "density_control.opacity_reset_maximum must satisfy 0 < value < 1",
+    )
+    _require(
+        density_control.prune_screen_radius_threshold > 0.0,
+        "density_control.prune_screen_radius_threshold must be positive",
+    )
+    _require(
+        density_control.prune_world_scale_fraction > 0.0,
+        "density_control.prune_world_scale_fraction must be positive",
+    )
+
     _require(config.output.exist_policy == "error",
              "output.exist_policy must be error")
-    _require(not config.features.adaptive_density_control,
-             "features.adaptive_density_control is outside the initial implementation")
-    _require(not config.features.opacity_reset,
-             "features.opacity_reset is outside the initial implementation")
     _require(not config.features.progressive_sh_degree,
              "features.progressive_sh_degree is outside the initial implementation")
 
@@ -427,6 +513,7 @@ def resolve_dtype(runtime: RuntimeConfig) -> torch.dtype:
 
 
 __all__ = [
+    "AdaptiveDensityControlConfig",
     "Config",
     "ConfigError",
     "DataConfig",

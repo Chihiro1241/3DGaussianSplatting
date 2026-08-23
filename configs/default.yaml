@@ -14,7 +14,7 @@ model:
   epsilon_q: 1.0e-8
 
 initialization:
-  num_gaussians: 1000
+  num_gaussians: 20000
   aabb_half_extent: [1.0, 1.0, 1.0]
   initial_rgb: [0.5, 0.5, 0.5]
   neighbor_count: 3
@@ -39,7 +39,7 @@ loss:
   ssim_k2: 0.03
 
 training:
-  iterations: 30000
+  iterations: 5000
   views_per_iteration: 1
   optimizer: adam
   adam_beta1: 0.9
@@ -58,11 +58,23 @@ training:
   checkpoint_interval: 5000
   save_best_by: mean_psnr
 
+density_control:
+  densify_from_iteration: 500
+  densify_until_iteration: 15000
+  densification_interval: 100
+  position_gradient_threshold: 0.0002
+  percent_dense: 0.01
+  prune_opacity_threshold: 0.005
+  opacity_reset_interval: 3000
+  opacity_reset_maximum: 0.01
+  prune_screen_radius_threshold: 20.0
+  prune_world_scale_fraction: 0.1
+
 output:
   exist_policy: error
   save_rendered_images: true
 
 features:
-  adaptive_density_control: false
-  opacity_reset: false
+  adaptive_density_control: true
+  opacity_reset: true
   progressive_sh_degree: false

@@ -9,6 +9,7 @@ from gaussian_splatting.config import Config, load_config
 from gaussian_splatting.data.camera import Camera
 from gaussian_splatting.model.gaussian_model import GaussianModel
 from gaussian_splatting.renderer.renderer import GaussianRenderer
+from gaussian_splatting.training.density_control import ScreenSpaceDensityStatistics
 from gaussian_splatting.training.optimizer import create_optimizer
 from gaussian_splatting.training.schedules import PositionLearningRateScheduler
 from gaussian_splatting.training.trainer import Trainer
@@ -28,6 +29,11 @@ def _tiny_config() -> Config:
             log_interval=3,
             evaluation_interval=3,
             checkpoint_interval=3,
+        ),
+        features=replace(
+            config.features,
+            adaptive_density_control=False,
+            opacity_reset=False,
         ),
         output=replace(config.output, save_rendered_images=False),
     )
@@ -50,14 +56,19 @@ def _tiny_model() -> GaussianModel:
     )
 
 
-def _tiny_camera(image_value: float = 0.25, name: str = "tiny.png") -> Camera:
+def _tiny_camera(
+    image_value: float = 0.25,
+    name: str = "tiny.png",
+    center_x: float = 0.0,
+) -> Camera:
     image = torch.full((3, 7, 7), image_value)
     image[0].add_(0.05)
     image[2].sub_(0.05)
+    center = torch.tensor([center_x, 0.0, 0.0])
     return Camera(
         rotation_cw=torch.eye(3),
-        translation_cw=torch.zeros(3),
-        camera_center_world=torch.zeros(3),
+        translation_cw=-center,
+        camera_center_world=center,
         fx=8.0,
         fy=8.0,
         cx=3.0,
@@ -106,6 +117,7 @@ def test_train_step_has_finite_gradients_and_updates_parameters(
     assert torch.isfinite(result.loss.dssim)
     assert torch.isfinite(result.psnr)
     assert torch.isfinite(result.render.image).all()
+    assert not result.render.projected.means_screen.retains_grad
     assert result.position_learning_rate == scheduler._position_group()["lr"]
     for parameter in model.parameters():
         assert parameter.grad is not None
@@ -115,6 +127,73 @@ def test_train_step_has_finite_gradients_and_updates_parameters(
         not torch.equal(parameter.detach(), before[name])
         for name, parameter in model.named_parameters()
     )
+
+
+def test_train_step_accumulates_optional_density_statistics(
+    tmp_path: Path,
+) -> None:
+    torch.manual_seed(0)
+    base_config = _tiny_config()
+    config = replace(
+        base_config,
+        features=replace(
+            base_config.features,
+            adaptive_density_control=True,
+        ),
+    )
+    model = _tiny_model()
+    camera = _tiny_camera()
+    second_camera = _tiny_camera(name="second.png", center_x=1.0)
+    optimizer = create_optimizer(model, config)
+    scheduler = PositionLearningRateScheduler(
+        optimizer,
+        total_iterations=config.training.iterations,
+        initial_learning_rate=config.training.position_lr_initial,
+        final_learning_rate=config.training.position_lr_final,
+    )
+    statistics = ScreenSpaceDensityStatistics.for_model(model)
+    trainer = Trainer(
+        model=model,
+        renderer=GaussianRenderer(config.rendering),
+        train_cameras=[camera, second_camera],
+        evaluation_cameras=[camera],
+        optimizer=optimizer,
+        scheduler=scheduler,
+        config=config,
+        output_directory=tmp_path,
+        camera_order=[0, 1],
+        density_statistics=statistics,
+    )
+
+    result = trainer.train_step(camera, iteration=1)
+
+    indices = result.render.projected.original_indices
+    screen_gradient = result.render.projected.means_screen.grad
+    assert result.render.projected.means_screen.retains_grad
+    assert screen_gradient is not None
+    expected_accumulator = torch.zeros_like(
+        statistics.position_gradient_accumulator
+    )
+    height, width = result.render.image.shape[-2:]
+    viewport_scale = screen_gradient.new_tensor(
+        [width / 2.0, height / 2.0]
+    )
+    expected_accumulator[indices] = torch.linalg.vector_norm(
+        screen_gradient * viewport_scale, dim=-1
+    )
+    expected_denominator = torch.zeros_like(
+        statistics.position_gradient_denominator
+    )
+    expected_denominator[indices] = 1
+    expected_radius = torch.zeros_like(statistics.max_screen_radius)
+    expected_radius[indices] = result.render.projected.radii
+    torch.testing.assert_close(
+        statistics.position_gradient_accumulator, expected_accumulator
+    )
+    torch.testing.assert_close(
+        statistics.position_gradient_denominator, expected_denominator
+    )
+    torch.testing.assert_close(statistics.max_screen_radius, expected_radius)
 
 
 def test_one_hundred_updates_remain_finite(tmp_path: Path) -> None:

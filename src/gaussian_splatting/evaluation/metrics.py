@@ -3,7 +3,30 @@
 from __future__ import annotations
 
 import torch
+from torch import nn
 from torch import Tensor
+
+
+class LPIPSMetric:
+    """Evaluate VGG LPIPS for RGB images supplied in the ``[0, 1]`` range."""
+
+    def __init__(
+        self,
+        *,
+        device: torch.device | str,
+        network: nn.Module | None = None,
+    ) -> None:
+        if network is None:
+            import lpips
+
+            network = lpips.LPIPS(net="vgg")
+        self.network = network.to(device).eval()
+
+    def __call__(self, rendered: Tensor, target: Tensor) -> Tensor:
+        _validate_pair(rendered, target)
+        rendered_lpips = rendered.unsqueeze(0).mul(2.0).sub(1.0)
+        target_lpips = target.unsqueeze(0).mul(2.0).sub(1.0)
+        return self.network(rendered_lpips, target_lpips).reshape(-1).mean()
 
 
 def _validate_pair(rendered: Tensor, target: Tensor) -> None:

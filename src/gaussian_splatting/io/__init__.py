@@ -1,6 +1,7 @@
 """Checkpoint and PLY serialization helpers."""
 
 from gaussian_splatting.io.checkpoint import (
+    CHECKPOINT_VERSION,
     load_checkpoint,
     model_from_checkpoint_state,
     read_checkpoint,
@@ -10,6 +11,7 @@ from gaussian_splatting.io.checkpoint import (
 from gaussian_splatting.io.ply_io import load_gaussians_ply, save_gaussians_ply
 
 __all__ = [
+    "CHECKPOINT_VERSION",
     "load_checkpoint",
     "load_gaussians_ply",
     "model_from_checkpoint_state",

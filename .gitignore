@@ -4,6 +4,7 @@ __pycache__/
 /outputs/
 /data/
 /output/
+/experiments/
 .venv/
 *.egg-info/
 .pytest_cache/

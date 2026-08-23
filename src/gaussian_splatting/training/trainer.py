@@ -19,8 +19,23 @@ from gaussian_splatting.evaluation.metrics import mean_psnr, psnr
 from gaussian_splatting.io.checkpoint import save_checkpoint
 from gaussian_splatting.model.gaussian_model import GaussianModel
 from gaussian_splatting.renderer.renderer import GaussianRenderer, RenderResult
+from gaussian_splatting.training.density_control import (
+    GaussianDensityControlResult,
+    GaussianOpacityResetResult,
+    ScreenSpaceDensityStatistics,
+    reset_gaussian_opacity,
+    run_density_control_event,
+)
 from gaussian_splatting.training.losses import LossResult, total_loss
-from gaussian_splatting.training.schedules import PositionLearningRateScheduler
+from gaussian_splatting.training.schedules import (
+    PositionLearningRateScheduler,
+    compute_scene_extent,
+    density_control_event_parameters,
+    density_control_schedule,
+)
+from gaussian_splatting.training.screen_radius_diagnostics import (
+    ScreenRadiusDiagnostic,
+)
 
 
 @dataclass(frozen=True)
@@ -32,6 +47,8 @@ class TrainStepResult:
     psnr: Tensor
     position_learning_rate: float
     render: RenderResult
+    density_control_result: GaussianDensityControlResult | None = None
+    opacity_reset_result: GaussianOpacityResetResult | None = None
 
 
 @dataclass(frozen=True)
@@ -89,7 +106,7 @@ def _save_image(image: Tensor, path: Path) -> None:
 
 
 class Trainer:
-    """Train, validate, log, and checkpoint a fixed-size Gaussian model."""
+    """Train, validate, log, and checkpoint a dynamically sized Gaussian model."""
 
     def __init__(
         self,
@@ -106,6 +123,8 @@ class Trainer:
         camera_order: list[int] | None = None,
         camera_cursor: int = 0,
         best_mean_psnr: float | None = None,
+        density_statistics: ScreenSpaceDensityStatistics | None = None,
+        screen_radius_diagnostic: ScreenRadiusDiagnostic | None = None,
     ) -> None:
         if not train_cameras or not evaluation_cameras:
             raise ValueError("training and evaluation camera sets must both be non-empty")
@@ -121,6 +140,37 @@ class Trainer:
         self.output_directory = Path(output_directory)
         self.start_iteration = int(start_iteration)
         self.best_mean_psnr = best_mean_psnr
+        if (
+            model.num_gaussians == 0
+            and start_iteration < config.training.iterations
+        ):
+            raise RuntimeError(
+                "cannot continue training with zero Gaussians"
+            )
+        if config.features.adaptive_density_control:
+            if density_statistics is None:
+                raise ValueError(
+                    "density_statistics is required when adaptive density "
+                    "control is enabled"
+                )
+            if not isinstance(
+                density_statistics,
+                ScreenSpaceDensityStatistics,
+            ):
+                raise TypeError(
+                    "density_statistics must be ScreenSpaceDensityStatistics"
+                )
+            density_statistics.validate_compatible(model)
+            self.scene_extent: float | None = compute_scene_extent(train_cameras)
+        else:
+            if density_statistics is not None:
+                raise ValueError(
+                    "density_statistics must be None when adaptive density "
+                    "control is disabled"
+                )
+            self.scene_extent = None
+        self.density_statistics = density_statistics
+        self.screen_radius_diagnostic = screen_radius_diagnostic
         self._started_at = time.monotonic()
 
         if camera_order is None:
@@ -172,12 +222,19 @@ class Trainer:
     def train_step(self, camera: Camera, iteration: int) -> TrainStepResult:
         """Perform rendering, loss, autograd, and one Adam update."""
 
+        if self.model.num_gaussians == 0:
+            raise RuntimeError("cannot train with zero Gaussians")
+        learning_rate = self.scheduler.step(iteration)
+        self.optimizer.zero_grad(set_to_none=True)
+        decision = density_control_schedule(self.config, iteration)
         runtime_camera = self._runtime_camera(camera)
         if runtime_camera.image is None:
             raise ValueError("a training camera must contain a target image")
-        learning_rate = self.scheduler.step(iteration)
-        self.optimizer.zero_grad(set_to_none=True)
-        render = self.renderer(self.model, runtime_camera, retain_screen_grad=False)
+        render = self.renderer(
+            self.model,
+            runtime_camera,
+            retain_screen_grad=decision.collect_statistics,
+        )
         if render.image.shape != runtime_camera.image.shape:
             raise ValueError("rendered image and target image shapes differ")
         loss = total_loss(
@@ -191,6 +248,57 @@ class Trainer:
         )
         loss.total.backward()
         self._assert_finite_gradients()
+        if decision.collect_statistics:
+            if self.density_statistics is None:  # pragma: no cover - constructor
+                raise RuntimeError("density statistics are unavailable")
+            self.density_statistics.accumulate(render)
+            if self.screen_radius_diagnostic is not None:
+                self.screen_radius_diagnostic.observe(
+                    render,
+                    iteration=iteration,
+                    view_name=camera.image_name,
+                    model=self.model,
+                    statistics=self.density_statistics,
+                )
+        density_control_result: GaussianDensityControlResult | None = None
+        if decision.run_density_control_event:
+            if self.density_statistics is None or self.scene_extent is None:
+                raise RuntimeError("density-control runtime state is unavailable")
+            parameters = density_control_event_parameters(
+                self.config,
+                iteration,
+                self.scene_extent,
+            )
+            density_control_result = run_density_control_event(
+                self.model,
+                self.optimizer,
+                self.density_statistics,
+                gradient_threshold=parameters.gradient_threshold,
+                densify_world_scale_threshold=(
+                    parameters.densify_world_scale_threshold
+                ),
+                prune_opacity_threshold=parameters.prune_opacity_threshold,
+                prune_screen_radius_threshold=(
+                    parameters.prune_screen_radius_threshold
+                ),
+                prune_world_scale_threshold=(
+                    parameters.prune_world_scale_threshold
+                ),
+            )
+            if self.model.num_gaussians == 0:
+                raise RuntimeError(
+                    "density-control event pruned all Gaussians"
+                )
+        opacity_reset_result: GaussianOpacityResetResult | None = None
+        if decision.run_opacity_reset:
+            opacity_reset_result = reset_gaussian_opacity(
+                self.model,
+                self.optimizer,
+                maximum_opacity=(
+                    self.config.density_control.opacity_reset_maximum
+                ),
+            )
+        self._assert_finite_parameters()
         self.optimizer.step()
         self._assert_finite_parameters()
         with torch.no_grad():
@@ -201,6 +309,8 @@ class Trainer:
             psnr=image_psnr,
             position_learning_rate=learning_rate,
             render=render,
+            density_control_result=density_control_result,
+            opacity_reset_result=opacity_reset_result,
         )
 
     def validate(self, iteration: int) -> EvaluationResult:
@@ -255,6 +365,7 @@ class Trainer:
             "camera_order": self.camera_order,
             "camera_cursor": self.camera_cursor,
             "best_mean_psnr": self.best_mean_psnr,
+            "density_statistics": self.density_statistics,
         }
 
     def save_checkpoint(self, iteration: int) -> None:
@@ -281,7 +392,7 @@ class Trainer:
             str(group.get("name", f"group_{index}")): float(group["lr"])
             for index, group in enumerate(self.optimizer.param_groups)
         }
-        record: dict[str, int | float] = {
+        record: dict[str, bool | int | float] = {
             "iteration": result.iteration,
             "loss_total": float(result.loss.total.detach().item()),
             "loss_l1": float(result.loss.l1.detach().item()),
@@ -293,6 +404,33 @@ class Trainer:
         record.update(
             {f"lr_{group_name}": value for group_name, value in learning_rates.items()}
         )
+        if result.density_control_result is not None:
+            density = result.density_control_result
+            record.update(
+                {
+                    "density_control_event": True,
+                    "density_num_gaussians_before": density.num_gaussians_before,
+                    "density_num_gaussians_after": density.num_gaussians_after,
+                    "density_num_observed": density.num_observed,
+                    "density_num_high_gradient": density.num_high_gradient,
+                    "density_num_cloned": density.num_cloned,
+                    "density_num_split_parents": density.num_split_parents,
+                    "density_num_children_created": density.num_children_created,
+                    "density_num_pruned_total": density.num_pruned_total,
+                    "density_num_low_opacity": density.num_low_opacity,
+                    "density_num_large_screen": density.num_large_screen,
+                    "density_num_large_world": density.num_large_world,
+                }
+            )
+        if result.opacity_reset_result is not None:
+            opacity = result.opacity_reset_result
+            record.update(
+                {
+                    "opacity_reset": True,
+                    "opacity_num_clamped": opacity.num_clamped,
+                    "opacity_reset_maximum": opacity.maximum_opacity,
+                }
+            )
         log_path = self.output_directory / "train_log.jsonl"
         log_path.parent.mkdir(parents=True, exist_ok=True)
         with log_path.open("a", encoding="utf-8") as stream:
@@ -311,7 +449,15 @@ class Trainer:
             _, camera = self._next_camera()
             step_result = self.train_step(camera, iteration)
             is_final = iteration == final_iteration
-            if iteration % self.config.training.log_interval == 0 or is_final:
+            force_event_log = (
+                step_result.density_control_result is not None
+                or step_result.opacity_reset_result is not None
+            )
+            if (
+                iteration % self.config.training.log_interval == 0
+                or force_event_log
+                or is_final
+            ):
                 self._write_log(step_result)
 
             if iteration % self.config.training.evaluation_interval == 0 or is_final:
