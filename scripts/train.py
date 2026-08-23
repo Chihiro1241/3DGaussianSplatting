@@ -13,9 +13,7 @@ import yaml
 
 from gaussian_splatting.config import Config, load_config, resolve_device, resolve_dtype
 from gaussian_splatting.data import (
-    load_blender_dataset,
-    read_camera_poses_json,
-    split_cameras,
+    load_dataset,
 )
 from gaussian_splatting.io.checkpoint import (
     load_checkpoint,
@@ -42,7 +40,7 @@ from gaussian_splatting.training.trainer import Trainer
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--data", type=Path, required=True, help="Blender dataset directory")
+    parser.add_argument("--data", type=Path, required=True, help="dataset scene directory")
     parser.add_argument("--config", type=Path, required=True, help="complete YAML configuration")
     parser.add_argument("--output", type=Path, required=True, help="new or resumed run directory")
     parser.add_argument(
@@ -114,15 +112,15 @@ def main(argv: list[str] | None = None) -> int:
     dtype = resolve_dtype(config.runtime)
     _seed_everything(config.runtime.seed)
 
-    cameras = load_blender_dataset(args.data, config)
-    train_cameras, evaluation_cameras = split_cameras(cameras, config.data.test_every)
+    dataset = load_dataset(args.data, config, splits=("train", "val"))
+    train_cameras = dataset.train
+    evaluation_cameras = dataset.val or dataset.test
 
     checkpoint_state = None
     if args.resume is None:
-        metadata = read_camera_poses_json(args.data / config.data.camera_file)
         generator = torch.Generator(device=device)
         generator.manual_seed(config.runtime.seed)
-        points, colors = generate_initial_points(metadata["target"], config, generator)
+        points, colors = generate_initial_points(dataset.scene_center, config, generator)
         model = initialize_gaussian_model(points, colors, config)
         start_iteration = 0
         camera_order = None

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+from dataclasses import dataclass
+import math
 from typing import Sequence
 
 import numpy as np
@@ -16,6 +18,22 @@ from gaussian_splatting.data.blender_loader import (
     read_camera_poses_json,
 )
 from gaussian_splatting.data.camera import Camera
+from gaussian_splatting.data.nerf_synthetic_loader import (
+    SPLITS,
+    read_nerf_synthetic_json,
+    resolve_nerf_image_path,
+)
+
+
+@dataclass(frozen=True)
+class CameraSplits:
+    """Dataset cameras preserving their source-defined splits."""
+
+    train: list[Camera]
+    val: list[Camera]
+    test: list[Camera]
+    scene_center: tuple[float, float, float]
+    format: str
 
 
 def _data_config(config: Config | DataConfig) -> DataConfig:
@@ -132,6 +150,99 @@ def load_blender_dataset(
     return cameras
 
 
+def load_nerf_synthetic_dataset(
+    data_directory: str | Path,
+    config: Config | DataConfig,
+    splits: Sequence[str] = SPLITS,
+) -> CameraSplits:
+    """Load all three source-defined splits of a NeRF Synthetic scene."""
+
+    data_config = _data_config(config)
+    root = Path(data_directory)
+    if not root.is_dir():
+        raise FileNotFoundError(f"dataset directory does not exist: {root}")
+    if data_config.rgba_background not in {"black", "white"}:
+        raise ValueError("data.rgba_background must be black or white")
+    if not 0.0 < data_config.resolution_scale <= 1.0:
+        raise ValueError("data.resolution_scale must satisfy 0 < value <= 1")
+
+    requested = tuple(splits)
+    unknown = sorted(set(requested) - set(SPLITS))
+    if unknown:
+        raise ValueError(f"unknown NeRF Synthetic splits: {', '.join(unknown)}")
+    loaded: dict[str, list[Camera]] = {split: [] for split in SPLITS}
+    for split in requested:
+        metadata = read_nerf_synthetic_json(root / f"transforms_{split}.json")
+        cameras: list[Camera] = []
+        expected_size: tuple[int, int] | None = None
+        for frame in metadata["frames"]:
+            image_path = resolve_nerf_image_path(root, frame["file_path"])
+            with Image.open(image_path) as opened:
+                image = ImageOps.exif_transpose(opened)
+                if expected_size is None:
+                    expected_size = image.size
+                elif image.size != expected_size:
+                    raise ValueError(
+                        f"image {image_path} has size {image.size}, expected {expected_size}"
+                    )
+                original_width, original_height = image.size
+                width, height = _scaled_size(
+                    original_width, original_height, data_config.resolution_scale
+                )
+                image_tensor = _image_to_tensor(
+                    _resize(image, (width, height)), data_config.rgba_background
+                )
+            focal = 0.5 * original_width / math.tan(0.5 * metadata["camera_angle_x"])
+            c2w = torch.tensor(frame["transform_matrix"], dtype=torch.float32)
+            rotation, translation, center = blender_c2w_to_opencv_w2c(c2w)
+            cameras.append(
+                Camera(
+                    rotation_cw=rotation,
+                    translation_cw=translation,
+                    camera_center_world=center,
+                    fx=float(focal * width / original_width),
+                    fy=float(focal * height / original_height),
+                    cx=float(width / 2.0),
+                    cy=float(height / 2.0),
+                    width=width,
+                    height=height,
+                    image=image_tensor,
+                    image_name=str(image_path.relative_to(root)),
+                )
+            )
+        loaded[split] = cameras
+    return CameraSplits(
+        train=loaded["train"], val=loaded["val"], test=loaded["test"],
+        scene_center=(0.0, 0.0, 0.0), format="nerf_synthetic"
+    )
+
+
+def load_dataset(
+    data_directory: str | Path,
+    config: Config | DataConfig,
+    splits: Sequence[str] = SPLITS,
+) -> CameraSplits:
+    """Auto-detect and load either supported dataset layout."""
+
+    root = Path(data_directory)
+    if (root / "transforms_train.json").is_file():
+        return load_nerf_synthetic_dataset(root, config, splits=splits)
+    data_config = _data_config(config)
+    camera_path = root / data_config.camera_file
+    if camera_path.is_file():
+        cameras = load_blender_dataset(root, data_config)
+        train, test = split_cameras(cameras, data_config.test_every)
+        metadata = read_camera_poses_json(camera_path)
+        return CameraSplits(
+            train=train, val=[], test=test,
+            scene_center=tuple(metadata["target"]), format="blender"
+        )
+    raise FileNotFoundError(
+        f"could not detect dataset format in {root}: expected transforms_train.json "
+        f"or {data_config.camera_file}"
+    )
+
+
 def split_cameras(
     cameras: Sequence[Camera], test_every: int
 ) -> tuple[list[Camera], list[Camera]]:
@@ -156,4 +267,7 @@ def split_cameras(
     return train, evaluation
 
 
-__all__ = ["load_blender_dataset", "split_cameras"]
+__all__ = [
+    "CameraSplits", "load_blender_dataset", "load_dataset",
+    "load_nerf_synthetic_dataset", "split_cameras",
+]
