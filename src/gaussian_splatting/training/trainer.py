@@ -126,8 +126,8 @@ class Trainer:
         density_statistics: ScreenSpaceDensityStatistics | None = None,
         screen_radius_diagnostic: ScreenRadiusDiagnostic | None = None,
     ) -> None:
-        if not train_cameras or not evaluation_cameras:
-            raise ValueError("training and evaluation camera sets must both be non-empty")
+        if not train_cameras:
+            raise ValueError("training camera set must be non-empty")
         if not 0 <= start_iteration <= config.training.iterations:
             raise ValueError("start_iteration is outside the configured training range")
         self.model = model
@@ -316,6 +316,9 @@ class Trainer:
     def validate(self, iteration: int) -> EvaluationResult:
         """Evaluate every held-out view and optionally save rendered PNGs."""
 
+        if not self.evaluation_cameras:
+            raise ValueError("evaluation camera set must be non-empty")
+
         was_training = self.model.training
         self.model.eval()
         per_image: dict[str, float] = {}
@@ -460,7 +463,9 @@ class Trainer:
             ):
                 self._write_log(step_result)
 
-            if iteration % self.config.training.evaluation_interval == 0 or is_final:
+            if self.evaluation_cameras and (
+                iteration % self.config.training.evaluation_interval == 0 or is_final
+            ):
                 evaluation = self.validate(iteration)
                 if self.best_mean_psnr is None or evaluation.mean_psnr > self.best_mean_psnr:
                     self.best_mean_psnr = evaluation.mean_psnr

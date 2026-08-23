@@ -114,13 +114,24 @@ def main(argv: list[str] | None = None) -> int:
 
     dataset = load_dataset(args.data, config, splits=("train", "val"))
     train_cameras = dataset.train
-    evaluation_cameras = dataset.val or dataset.test
+    if dataset.format == "colmap":
+        evaluation_cameras = []
+    elif dataset.val:
+        evaluation_cameras = dataset.val
+    else:
+        evaluation_cameras = load_dataset(
+            args.data, config, splits=("test",), load_points=False
+        ).test
 
     checkpoint_state = None
     if args.resume is None:
-        generator = torch.Generator(device=device)
-        generator.manual_seed(config.runtime.seed)
-        points, colors = generate_initial_points(dataset.scene_center, config, generator)
+        if dataset.initial_points is not None and dataset.initial_colors is not None:
+            points = dataset.initial_points.to(device=device, dtype=dtype)
+            colors = dataset.initial_colors.to(device=device, dtype=dtype)
+        else:
+            generator = torch.Generator(device=device)
+            generator.manual_seed(config.runtime.seed)
+            points, colors = generate_initial_points(dataset.scene_center, config, generator)
         model = initialize_gaussian_model(points, colors, config)
         start_iteration = 0
         camera_order = None

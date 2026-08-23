@@ -28,7 +28,7 @@ def main(argv: list[str] | None = None) -> int:
     device = resolve_device(config.runtime)
     dtype = resolve_dtype(config.runtime)
     model = model_from_checkpoint_state(state, config, device=device, dtype=dtype)
-    dataset = load_dataset(args.data, config, splits=(args.split,))
+    dataset = load_dataset(args.data, config, splits=(args.split,), load_points=False)
     selected = getattr(dataset, args.split)
     evaluate_camera_set(
         model,

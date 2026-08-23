@@ -129,6 +129,37 @@ def test_train_step_has_finite_gradients_and_updates_parameters(
     )
 
 
+def test_training_without_evaluation_saves_fixed_checkpoint_only(tmp_path: Path) -> None:
+    config = _tiny_config()
+    model = _tiny_model()
+    camera = _tiny_camera()
+    optimizer = create_optimizer(model, config)
+    scheduler = PositionLearningRateScheduler(
+        optimizer,
+        total_iterations=config.training.iterations,
+        initial_learning_rate=config.training.position_lr_initial,
+        final_learning_rate=config.training.position_lr_final,
+    )
+    trainer = Trainer(
+        model=model,
+        renderer=GaussianRenderer(config.rendering),
+        train_cameras=[camera],
+        evaluation_cameras=[],
+        optimizer=optimizer,
+        scheduler=scheduler,
+        config=config,
+        output_directory=tmp_path,
+        camera_order=[0],
+    )
+
+    trainer.train()
+
+    assert (tmp_path / "checkpoints" / "iteration_00000003.pt").is_file()
+    assert (tmp_path / "checkpoints" / "latest.pt").is_file()
+    assert not (tmp_path / "checkpoints" / "best.pt").exists()
+    assert not (tmp_path / "metrics").exists()
+
+
 def test_train_step_accumulates_optional_density_statistics(
     tmp_path: Path,
 ) -> None:
