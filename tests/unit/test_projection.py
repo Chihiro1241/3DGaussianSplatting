@@ -14,6 +14,7 @@ from gaussian_splatting.renderer.projection import (
     project_gaussians,
     visible_depth_condition,
 )
+from gaussian_splatting.renderer.rasterizer import rasterize_gaussians
 
 
 def _rendering_config() -> RenderingConfig:
@@ -74,11 +75,21 @@ def test_gaussian_rendering_rectangle__eq_gaussian_rendering_rectangle() -> None
         torch.tensor(
             [
                 [1, 4, 0, 3],
-                [0, -4, 0, 2],
-                [8, 4, 0, 2],
+                [1, 0, 1, 0],
+                [1, 0, 1, 0],
             ]
         ),
     )
+
+
+def test_gaussian_rendering_rectangle_handles_extreme_coordinates_safely() -> None:
+    means = torch.tensor([[1.0e30, 1.0e30], [2.0, 2.0]])
+    radii = torch.tensor([1, 10**12])
+
+    rectangles = gaussian_rendering_rectangle(means, radii, height=5, width=5)
+
+    assert torch.equal(rectangles[0], torch.tensor([1, 0, 1, 0]))
+    assert torch.equal(rectangles[1], torch.tensor([0, 4, 0, 4]))
 
 
 def test_pixel_coordinate_convention__eq_pixel_coordinate_convention() -> None:
@@ -127,3 +138,26 @@ def test_project_gaussians_filters_and_orders_visible_rows() -> None:
         visible_mask.nonzero().squeeze(1),
     )
 
+
+def test_project_gaussians_culls_near_plane_before_unstable_projection() -> None:
+    means = torch.tensor(
+        [[-1.25, 2.8, 1.0e-4], [0.0, 0.0, 2.0]], requires_grad=True
+    )
+    parameters = GaussianParameters(
+        means_world=means,
+        quaternions=torch.tensor([[1.0, 0.0, 0.0, 0.0]]).repeat(2, 1),
+        scales=torch.full((2, 3), 0.1),
+        opacities=torch.full((2, 1), 0.5),
+        sh_coefficients=torch.zeros(2, 16, 3),
+    )
+
+    projected, visible = project_gaussians(parameters, _camera(), _rendering_config())
+    image, _ = rasterize_gaussians(
+        projected, height=5, width=5, background=torch.zeros(3)
+    )
+    image.sum().backward()
+
+    assert torch.equal(visible, torch.tensor([False, True]))
+    assert bool(torch.isfinite(image).all())
+    assert bool(torch.isfinite(projected.means_screen).all())
+    assert means.grad is not None and bool(torch.isfinite(means.grad).all())

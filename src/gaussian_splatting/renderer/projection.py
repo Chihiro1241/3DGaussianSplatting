@@ -32,6 +32,10 @@ from gaussian_splatting.math.transform import (
 from gaussian_splatting.model.gaussian_model import GaussianParameters
 
 
+NEAR_PLANE = 0.2
+FOV_GUARD_BAND = 1.3
+_MAX_SAFE_RADIUS = 2_147_483_647
+
 @dataclass
 class ProjectedGaussians:
     """Differentiable attributes for the ``Nv`` visible Gaussians.
@@ -105,7 +109,10 @@ def gaussian_rendering_radius(
         raise ValueError("sigma_extent must be positive")
     # Radius selection is a discontinuous culling decision.  Detaching makes
     # the intended absence of gradients explicit.
-    values = maximum_eigenvalues.detach().clamp_min(0.0)
+    values = maximum_eigenvalues.detach().clamp(
+        min=0.0,
+        max=float(_MAX_SAFE_RADIUS) ** 2,
+    )
     return torch.ceil(float(sigma_extent) * torch.sqrt(values)).to(torch.int64)
 
 
@@ -117,10 +124,11 @@ def gaussian_rendering_rectangle(
 ) -> Tensor:
     """Return inclusive ``(xmin, xmax, ymin, ymax)`` rendering rectangles.
 
-    Bounds are clipped exactly as in the TeX equation: lower bounds are
-    clipped only against zero and upper bounds only against the final pixel.
-    Consequently, a non-intersecting rectangle still has ``xmin > xmax`` or
-    ``ymin > ymax``, which lets the caller cull it without ambiguity.
+    Intersection is decided in floating point before conversion to integers.
+    Intersecting bounds are clipped on both sides to the valid image range;
+    non-intersecting or non-finite bounds receive the in-range empty sentinel
+    ``(1, 0, 1, 0)``. This prevents extreme coordinates from wrapping during
+    float-to-int conversion.
 
     TeX: eq:gaussian_rendering_rectangle
     """
@@ -141,22 +149,23 @@ def gaussian_rendering_rectangle(
 
     centers = means_screen.detach()
     radii_float = radii.detach().to(dtype=centers.dtype)
-    xmin = torch.maximum(
-        torch.floor(centers[..., 0] - radii_float),
-        centers.new_tensor(0.0),
-    )
-    xmax = torch.minimum(
-        torch.ceil(centers[..., 0] + radii_float),
-        centers.new_tensor(float(width - 1)),
-    )
-    ymin = torch.maximum(
-        torch.floor(centers[..., 1] - radii_float),
-        centers.new_tensor(0.0),
-    )
-    ymax = torch.minimum(
-        torch.ceil(centers[..., 1] + radii_float),
-        centers.new_tensor(float(height - 1)),
-    )
+    raw_xmin = torch.floor(centers[..., 0] - radii_float)
+    raw_xmax = torch.ceil(centers[..., 0] + radii_float)
+    raw_ymin = torch.floor(centers[..., 1] - radii_float)
+    raw_ymax = torch.ceil(centers[..., 1] + radii_float)
+    finite = torch.isfinite(centers).all(dim=-1)
+    intersects = finite & (raw_xmax >= 0.0) & (raw_xmin <= width - 1)
+    intersects &= (raw_ymax >= 0.0) & (raw_ymin <= height - 1)
+    xmin = raw_xmin.clamp(0.0, float(width - 1))
+    xmax = raw_xmax.clamp(0.0, float(width - 1))
+    ymin = raw_ymin.clamp(0.0, float(height - 1))
+    ymax = raw_ymax.clamp(0.0, float(height - 1))
+    # Invalid/non-intersecting rows use an in-range empty sentinel, avoiding
+    # undefined float-to-int conversion for extreme projected coordinates.
+    xmin = torch.where(intersects, xmin, torch.ones_like(xmin))
+    xmax = torch.where(intersects, xmax, torch.zeros_like(xmax))
+    ymin = torch.where(intersects, ymin, torch.ones_like(ymin))
+    ymax = torch.where(intersects, ymax, torch.zeros_like(ymax))
     return torch.stack((xmin, xmax, ymin, ymax), dim=-1).to(torch.int64)
 
 
@@ -245,10 +254,11 @@ def project_gaussians(
 ) -> tuple[ProjectedGaussians, Tensor]:
     """Perform all per-Gaussian projection work exactly once.
 
-    The returned :class:`ProjectedGaussians` contains only positive-depth
-    Gaussians whose rendering rectangle intersects the image.  Its rows are
-    ordered by increasing depth, using the original index as a tie-breaker.
-    The second return value is the visibility mask over all input Gaussians.
+    The returned :class:`ProjectedGaussians` contains only Gaussians beyond
+    the near plane, inside the 1.3x field-of-view guard band, and whose
+    rendering rectangle intersects the image. Its rows are ordered by
+    increasing depth, using the original index as a tie-breaker. The second
+    return value is the visibility mask over all input Gaussians.
     """
 
     count, _, device = _validate_parameter_batch(parameters)
@@ -260,8 +270,15 @@ def project_gaussians(
         camera.rotation_cw,
         camera.translation_cw,
     )
-    depth_mask = visible_depth_condition(means_camera_all)
-    candidate_indices = torch.nonzero(depth_mask, as_tuple=False).squeeze(1)
+    depth_mask = means_camera_all[:, 2] > NEAR_PLANE
+    depth_indices = torch.nonzero(depth_mask, as_tuple=False).squeeze(1)
+    depth_candidates = means_camera_all[depth_indices]
+    normalized_x = depth_candidates[:, 0] / depth_candidates[:, 2]
+    normalized_y = depth_candidates[:, 1] / depth_candidates[:, 2]
+    limit_x = FOV_GUARD_BAND * camera.width / (2.0 * camera.fx)
+    limit_y = FOV_GUARD_BAND * camera.height / (2.0 * camera.fy)
+    guard_mask = (normalized_x.abs() <= limit_x) & (normalized_y.abs() <= limit_y)
+    candidate_indices = depth_indices[guard_mask]
 
     means_world = parameters.means_world[candidate_indices]
     means_camera = means_camera_all[candidate_indices]
@@ -345,3 +362,12 @@ def project_gaussians(
         rectangles=rectangles[order],
     )
     return projected, visible_mask
+
+
+__all__ = [
+    "FOV_GUARD_BAND", "NEAR_PLANE", "ProjectedGaussians",
+    "gaussian_rendering_radius", "gaussian_rendering_rectangle",
+    "implementation_depth_order",
+    "maximum_2d_covariance_eigenvalue", "pixel_coordinate_convention",
+    "project_gaussians", "visible_depth_condition",
+]

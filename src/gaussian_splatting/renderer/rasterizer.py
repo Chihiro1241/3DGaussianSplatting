@@ -285,8 +285,14 @@ def rasterize_gaussians(
         )
         if xmin > xmax or ymin > ymax:
             continue
-        if xmin < 0 or ymin < 0 or xmax >= width or ymax >= height:
-            raise ValueError("projected rectangle lies outside the image")
+        # Be defensive for manually constructed ProjectedGaussians as well as
+        # normal projection output. Clip before slicing and skip disjoint rows.
+        if xmax < 0 or ymax < 0 or xmin >= width or ymin >= height:
+            continue
+        xmin = max(xmin, 0)
+        xmax = min(xmax, width - 1)
+        ymin = max(ymin, 0)
+        ymax = min(ymax, height - 1)
 
         region = (slice(ymin, ymax + 1), slice(xmin, xmax + 1))
         region_active = active[region]
