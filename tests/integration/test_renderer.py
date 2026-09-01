@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import importlib.util
+
+import pytest
 import torch
 from torch import nn
 
 from gaussian_splatting.config import RenderingConfig
 from gaussian_splatting.data.camera import Camera
-from gaussian_splatting.model.gaussian_model import GaussianParameters
+from gaussian_splatting.model.gaussian_model import GaussianModel, GaussianParameters
+from gaussian_splatting.training.density_control import ScreenSpaceDensityStatistics
 from gaussian_splatting.renderer.renderer import GaussianRenderer, RenderResult
 
 
@@ -124,3 +128,53 @@ def test_two_gaussians_project_sort_and_composite_front_to_back() -> None:
     assert result.projected.original_indices.tolist() == [1, 0]
     expected_center = 0.5 * colors[1] + (1.0 - 0.5) * 0.5 * colors[0]
     torch.testing.assert_close(result.image[:, 2, 2], expected_center)
+
+
+@pytest.mark.skipif(
+    not torch.cuda.is_available()
+    or importlib.util.find_spec("diff_gaussian_rasterization") is None,
+    reason="official CUDA rasterizer is unavailable",
+)
+def test_cuda_renderer_propagates_gradients_and_preserves_adc_inputs() -> None:
+    device = torch.device("cuda")
+    model = GaussianModel(
+        means_world=torch.tensor([[0.0, 0.0, 2.0]], device=device),
+        raw_quaternions=torch.tensor([[1.0, 0.0, 0.0, 0.0]], device=device),
+        raw_scales=torch.log(torch.full((1, 3), 0.1, device=device)),
+        raw_opacities=torch.logit(torch.tensor([[0.8]], device=device)),
+        sh_dc=torch.tensor([[[1.0, 0.0, 0.0]]], device=device),
+        sh_rest=torch.zeros((1, 15, 3), device=device),
+    )
+    camera = Camera(
+        rotation_cw=torch.eye(3, device=device),
+        translation_cw=torch.zeros(3, device=device),
+        camera_center_world=torch.zeros(3, device=device),
+        fx=10.0,
+        fy=10.0,
+        cx=2.0,
+        cy=2.0,
+        width=5,
+        height=5,
+    )
+
+    result = GaussianRenderer(_config(), backend="cuda")(
+        model,
+        camera,
+        retain_screen_grad=True,
+    )
+    assert result.image.shape == (3, 5, 5)
+    assert result.final_transmittance is None
+    assert torch.equal(result.visible_mask, torch.tensor([True], device=device))
+    assert result.projected.radii.dtype == torch.int64
+    assert result.screen_space_points is not None
+
+    result.image.sum().backward()
+    assert result.screen_space_points.grad is not None
+    for parameter in model.parameters():
+        assert parameter.grad is not None
+        assert torch.isfinite(parameter.grad).all()
+
+    statistics = ScreenSpaceDensityStatistics.for_model(model)
+    statistics.accumulate(result)
+    assert statistics.position_gradient_denominator.item() == 1
+    assert statistics.max_screen_radius.item() > 0

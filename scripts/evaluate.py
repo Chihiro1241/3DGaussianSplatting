@@ -18,6 +18,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--split", choices=("train", "val", "test"), required=True)
     parser.add_argument("--output", type=Path, required=True, help="evaluation JSON path")
+    parser.add_argument("--image-directory", default="images")
+    parser.add_argument(
+        "--render-backend",
+        choices=("reference", "cuda"),
+        default="reference",
+    )
     return parser
 
 
@@ -28,11 +34,17 @@ def main(argv: list[str] | None = None) -> int:
     device = resolve_device(config.runtime)
     dtype = resolve_dtype(config.runtime)
     model = model_from_checkpoint_state(state, config, device=device, dtype=dtype)
-    dataset = load_dataset(args.data, config, splits=(args.split,), load_points=False)
+    dataset = load_dataset(
+        args.data,
+        config,
+        splits=(args.split,),
+        load_points=False,
+        image_directory=args.image_directory,
+    )
     selected = getattr(dataset, args.split)
     evaluate_camera_set(
         model,
-        GaussianRenderer(config.rendering),
+        GaussianRenderer(config.rendering, backend=args.render_backend),
         selected,
         args.output,
         ssim_window_size=config.loss.ssim_window_size,

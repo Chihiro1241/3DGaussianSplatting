@@ -234,11 +234,24 @@ def test_pruning_applies_to_clone_and_split_children_and_can_end_at_zero() -> No
         assert _groups(optimizer)[name]["params"][0] is parameter
 
 
-def test_pre_event_screen_radius_prunes_original_but_not_new_clone() -> None:
-    model = _model([[2.0, 2.0, 2.0], [0.5, 0.5, 0.5]])
+def test_event_matches_official_radius_reset_but_keeps_opacity_and_world_pruning() -> None:
+    model = _model(
+        [
+            [0.5, 0.5, 0.5],
+            [0.5, 0.5, 0.5],
+            [2.0, 2.0, 2.0],
+            [0.5, 0.5, 0.5],
+        ],
+        opacities=[0.8, 0.001, 0.8, 0.8],
+    )
     optimizer = _optimizer(model)
-    statistics = _statistics(model, [0.0, 2.0], radii=[12, 5])
-    original_clone_parent = model.means_world[1].detach().clone()
+    statistics = _statistics(
+        model,
+        [0.0, 0.0, 0.0, 2.0],
+        radii=[21, 22, 23, 24],
+    )
+    screen_only = model.means_world[0].detach().clone()
+    clone_parent = model.means_world[3].detach().clone()
 
     result = run_density_control_event(
         model,
@@ -246,22 +259,28 @@ def test_pre_event_screen_radius_prunes_original_but_not_new_clone() -> None:
         statistics,
         gradient_threshold=1.0,
         densify_world_scale_threshold=1.0,
-        prune_opacity_threshold=0.0,
-        prune_screen_radius_threshold=10.0,
+        prune_opacity_threshold=0.005,
+        prune_screen_radius_threshold=20.0,
+        prune_world_scale_threshold=1.5,
     )
 
     assert result.num_cloned == 1
     assert result.num_split_parents == 0
-    assert result.num_large_screen == 1
-    assert result.num_pruned_total == 1
-    assert model.num_gaussians == 2
+    assert result.num_large_screen == 0
+    assert result.num_low_opacity == 1
+    assert result.num_large_world == 1
+    assert result.num_pruned_total == 2
+    assert model.num_gaussians == 3
     torch.testing.assert_close(
-        model.means_world[0], original_clone_parent, rtol=0.0, atol=0.0
+        model.means_world[0], screen_only, rtol=0.0, atol=0.0
     )
     torch.testing.assert_close(
-        model.means_world[1], original_clone_parent, rtol=0.0, atol=0.0
+        model.means_world[1], clone_parent, rtol=0.0, atol=0.0
     )
-    _assert_statistics_reset(statistics, 2)
+    torch.testing.assert_close(
+        model.means_world[2], clone_parent, rtol=0.0, atol=0.0
+    )
+    _assert_statistics_reset(statistics, 3)
 
 
 def test_event_adam_state_preserves_survivors_and_zeros_all_new_rows() -> None:

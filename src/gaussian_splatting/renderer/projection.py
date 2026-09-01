@@ -251,6 +251,7 @@ def project_gaussians(
     parameters: GaussianParameters,
     camera: Camera,
     config: RenderingConfig,
+    active_sh_degree: int = 3,
 ) -> tuple[ProjectedGaussians, Tensor]:
     """Perform all per-Gaussian projection work exactly once.
 
@@ -315,7 +316,7 @@ def project_gaussians(
     colors = sh_color_implementation(
         directions,
         parameters.sh_coefficients[candidate_indices],
-        active_degree=3,
+        active_degree=active_sh_degree,
     )
     opacities = parameters.opacities[candidate_indices]
     depths = means_camera[:, 2]

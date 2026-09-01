@@ -57,6 +57,14 @@ class GaussianOpacityResetResult:
     num_gaussians: int
     num_clamped: int
     maximum_opacity: float
+    before_mean: float | None = None
+    before_median: float | None = None
+    before_min: float | None = None
+    before_max: float | None = None
+    after_mean: float | None = None
+    after_median: float | None = None
+    after_min: float | None = None
+    after_max: float | None = None
 
 
 @dataclass(frozen=True)
@@ -362,7 +370,15 @@ class ScreenSpaceDensityStatistics:
         if indices.numel() == 0:
             return
 
-        gradient = means_screen.grad
+        if render.screen_space_points is None:
+            gradient = means_screen.grad
+        else:
+            full_gradient = render.screen_space_points.grad
+            gradient = (
+                None
+                if full_gradient is None
+                else full_gradient[indices, :2]
+            )
         if gradient is None:
             raise RuntimeError(
                 "screen-space gradient is unavailable; render with "
@@ -387,8 +403,10 @@ class ScreenSpaceDensityStatistics:
 
         with torch.no_grad():
             height, width = render.image.shape[-2:]
-            viewport_scale = gradient.new_tensor(
-                [width / 2.0, height / 2.0]
+            viewport_scale = (
+                gradient.new_ones(2)
+                if render.screen_space_points is not None
+                else gradient.new_tensor([width / 2.0, height / 2.0])
             )
             viewport_gradient = gradient.detach() * viewport_scale
             gradient_norm = torch.linalg.vector_norm(
@@ -731,6 +749,7 @@ def reset_gaussian_opacity(
 
     with torch.no_grad():
         raw_opacities = model.raw_opacities.detach()
+        actual_opacities = torch.sigmoid(raw_opacities)
         maximum = raw_opacities.new_tensor(maximum_opacity_value)
         raw_maximum = torch.logit(maximum)
         if not torch.isfinite(raw_maximum).item():
@@ -740,6 +759,19 @@ def reset_gaussian_opacity(
             )
         num_clamped = int((raw_opacities > raw_maximum).sum().item())
         replacement = torch.minimum(raw_opacities, raw_maximum)
+        reset_opacities = torch.minimum(actual_opacities, maximum)
+        if actual_opacities.numel() == 0:
+            before_mean = before_median = before_min = before_max = None
+            after_mean = after_median = after_min = after_max = None
+        else:
+            before_mean = float(actual_opacities.mean().item())
+            before_median = float(actual_opacities.median().item())
+            before_min = float(actual_opacities.min().item())
+            before_max = float(actual_opacities.max().item())
+            after_mean = float(reset_opacities.mean().item())
+            after_median = float(reset_opacities.median().item())
+            after_min = float(reset_opacities.min().item())
+            after_max = float(reset_opacities.max().item())
 
     num_gaussians = model.num_gaussians
     replace_named_gaussian_parameter(
@@ -752,6 +784,14 @@ def reset_gaussian_opacity(
         num_gaussians=num_gaussians,
         num_clamped=num_clamped,
         maximum_opacity=maximum_opacity_value,
+        before_mean=before_mean,
+        before_median=before_median,
+        before_min=before_min,
+        before_max=before_max,
+        after_mean=after_mean,
+        after_median=after_median,
+        after_min=after_min,
+        after_max=after_max,
     )
 
 
@@ -1146,6 +1186,13 @@ def run_density_control_event(
             gradient_threshold=gradient_threshold_value,
             world_scale_threshold=densify_scale_threshold_value,
         )
+        # Match the paper-era Graphdeco state transition. Both official
+        # densification_postfix calls replace max_radii2D with zeros before the
+        # final prune, so radii accumulated during the preceding window cannot
+        # participate in that prune. Keep the gradient statistics until split
+        # selection is complete, then reproduce the observable radius state.
+        with torch.no_grad():
+            statistics.max_screen_radius.zero_()
         prune_result = prune_gaussians(
             model,
             optimizer,

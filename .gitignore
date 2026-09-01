@@ -7,6 +7,10 @@ __pycache__/
 /experiments/
 .venv/
 *.egg-info/
+build/
+dist/
+*.so
+.ninja_*
 .pytest_cache/
 .coverage
 htmlcov/

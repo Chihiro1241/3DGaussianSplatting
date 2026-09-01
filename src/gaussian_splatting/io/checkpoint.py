@@ -221,11 +221,18 @@ def model_from_checkpoint_state(
         name: model_state[name].detach().to(device=device, dtype=dtype)
         for name in parameter_names
     }
-    return GaussianModel(
+    model = GaussianModel(
         **tensors,
         epsilon_q=config.model.epsilon_q,
         sh_degree=config.model.sh_degree,
     )
+    iteration = int(state.get("iteration", 0))
+    model.set_active_sh_degree(
+        min(iteration // 1000, config.model.sh_degree)
+        if config.features.progressive_sh_degree
+        else config.model.sh_degree
+    )
+    return model
 
 
 def load_checkpoint(
@@ -281,6 +288,13 @@ def load_checkpoint(
             )
 
     model.load_state_dict(model_state, strict=True)
+    model.set_active_sh_degree(
+        min(int(state["iteration"]) // 1000, model.sh_degree)
+        if isinstance(state["config"], Mapping)
+        and isinstance(state["config"].get("features"), Mapping)
+        and state["config"]["features"].get("progressive_sh_degree") is True
+        else model.sh_degree
+    )
     if optimizer is not None:
         optimizer.load_state_dict(state["optimizer_state_dict"])
     if scheduler is not None:

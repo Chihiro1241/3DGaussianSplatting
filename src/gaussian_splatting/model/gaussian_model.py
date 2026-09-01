@@ -120,12 +120,24 @@ class GaussianModel(nn.Module):
 
         self.epsilon_q = float(epsilon_q)
         self.sh_degree = sh_degree
+        self.active_sh_degree = sh_degree
         self.means_world = nn.Parameter(means_world.detach().clone())
         self.raw_quaternions = nn.Parameter(raw_quaternions.detach().clone())
         self.raw_scales = nn.Parameter(raw_scales.detach().clone())
         self.raw_opacities = nn.Parameter(raw_opacities.detach().clone())
         self.sh_dc = nn.Parameter(sh_dc.detach().clone())
         self.sh_rest = nn.Parameter(sh_rest.detach().clone())
+
+    def set_active_sh_degree(self, degree: int) -> None:
+        """Select the highest SH degree used by both rendering backends."""
+        if type(degree) is not int or not 0 <= degree <= self.sh_degree:
+            raise ValueError(f"active SH degree must be in [0, {self.sh_degree}]")
+        self.active_sh_degree = degree
+
+    def one_up_sh_degree(self) -> int:
+        """Increase the active SH degree by one, capped at the model maximum."""
+        self.active_sh_degree = min(self.active_sh_degree + 1, self.sh_degree)
+        return self.active_sh_degree
 
     @classmethod
     def validate_gaussian_parameter_tensors(

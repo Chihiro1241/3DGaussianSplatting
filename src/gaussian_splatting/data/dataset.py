@@ -233,6 +233,7 @@ def load_colmap_dataset(
     splits: Sequence[str] = ("train", "test"),
     *,
     load_points: bool = True,
+    image_directory: str = "images",
 ) -> CameraSplits:
     """Load a PINHOLE COLMAP scene and apply the official every-eighth split."""
 
@@ -272,7 +273,7 @@ def load_colmap_dataset(
                     f"unsupported COLMAP camera model {intrinsics.model!r}; "
                     "the inspected datasets require PINHOLE"
                 )
-            image_path = root / "images" / image_record.name
+            image_path = root / image_directory / image_record.name
             if not image_path.is_file():
                 raise FileNotFoundError(f"COLMAP image does not exist: {image_path}")
             with Image.open(image_path) as opened:
@@ -326,6 +327,7 @@ def load_dataset(
     splits: Sequence[str] = SPLITS,
     *,
     load_points: bool = True,
+    image_directory: str = "images",
 ) -> CameraSplits:
     """Auto-detect and load either supported dataset layout."""
 
@@ -347,7 +349,11 @@ def load_dataset(
             raise ValueError("COLMAP datasets do not define a val split")
         colmap_splits = tuple(split for split in splits if split != "val")
         return load_colmap_dataset(
-            root, data_config, splits=colmap_splits, load_points=load_points
+            root,
+            data_config,
+            splits=colmap_splits,
+            load_points=load_points,
+            image_directory=image_directory,
         )
     raise FileNotFoundError(
         f"could not detect dataset format in {root}: expected transforms_train.json "
