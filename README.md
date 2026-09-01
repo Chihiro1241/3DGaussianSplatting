@@ -5,10 +5,11 @@
 degree-3実球面調和関数、前方から後方へのsplat合成、学習、評価、
 チェックポイントおよび公式形式PLYの入出力までを含みます。
 
-検証優先の参照実装としてGaussian単位のPythonループを使用します。CUDA/C++
-拡張、タイルベースラスタライザ、progressive SH degree、OpenGLリアルタイム
-viewerは未実装です。Adaptive Density Control（ADC）はoptional featureとして
-実装済みですが、既定では無効であり、従来どおりGaussian数を固定して学習します。
+検証用のPyTorch参照rendererに加え、GraphDecoの公式
+`diff-gaussian-rasterization`を利用するCUDA backendを備えます。公式実装と同じ
+Adaptive Density Control（ADC）のstate transition、progressive SH、解像度warm-up、
+COLMAPおよびSynthetic NeRF loaderを含み、原論文の全21 sceneで7K/30K評価を
+完走したreproduction baselineです。OpenGLリアルタイムviewerは含みません。
 
 ## 環境構築
 
@@ -24,6 +25,31 @@ python -m pip install -e ".[dev]"
 PyTorchは`2.4以上2.7未満`を対象とします。CUDA版が必要な場合は、環境に
 対応したwheelをPyTorch公式配布元から導入してください。`runtime.device: auto`
 ではCUDAを優先し、利用できなければCPUを使用します。
+
+### CUDA rasterizer
+
+Paper benchmarkで使用した外部extensionは
+`graphdeco-inria/diff-gaussian-rasterization`の次のcommitです。
+
+```text
+59f5f77e3ddbac3ed9db93ec2cfe99ed6c5d121d
+```
+
+CUDA toolkitとPyTorch CUDA wheelを用意した環境で、次のようにbuildします。
+
+```bash
+git clone https://github.com/graphdeco-inria/diff-gaussian-rasterization.git
+cd diff-gaussian-rasterization
+git checkout 59f5f77e3ddbac3ed9db93ec2cfe99ed6c5d121d
+
+# GCC 13ではcuda_rasterizer/rasterizer_impl.hのinclude群へ
+# `#include <cstdint>` を追加してからbuildする。
+python -m pip install --no-build-isolation .
+```
+
+検証済みbaseline環境はCPython 3.11.15、PyTorch 2.6.0+cu124、CUDA 12.4、
+GCC/G++ 13.3です。extensionを利用できない環境では`reference` backendのtestsは
+実行できますが、paper benchmarkは`cuda` backendを必須とします。
 
 ## データ
 
@@ -47,19 +73,19 @@ JSONを想定します。RGBAは設定した黒または白背景へ合成して
 python scripts/train.py \
   --data data \
   --config configs/default.yaml \
-  --output output/run001
+  --output output/runs/run001_example
 
 python scripts/render.py \
   --data data \
-  --checkpoint output/run001/checkpoints/latest.pt \
+  --checkpoint output/runs/run001_example/checkpoints/latest.pt \
   --split test \
-  --output output/run001/renders/test
+  --output output/runs/run001_example/renders/test
 
 python scripts/evaluate.py \
   --data data \
-  --checkpoint output/run001/checkpoints/latest.pt \
+  --checkpoint output/runs/run001_example/checkpoints/latest.pt \
   --split test \
-  --output output/run001/metrics/evaluation.json
+  --output output/runs/run001_example/metrics/evaluation.json
 ```
 
 学習再開時はチェックポイントの全乱数状態とカメラ選択状態を復元します。
@@ -68,8 +94,8 @@ python scripts/evaluate.py \
 python scripts/train.py \
   --data data \
   --config configs/default.yaml \
-  --output output/run001 \
-  --resume output/run001/checkpoints/latest.pt
+  --output output/runs/run001_example \
+  --resume output/runs/run001_example/checkpoints/latest.pt
 ```
 
 ## Adaptive Density Control
@@ -109,6 +135,11 @@ density_control:
 実行します。screen-spaceおよびworld-space size pruningは、
 `iteration > opacity_reset_interval`のdensity-control eventでのみ有効です。
 
+clone/split後のscreen-radius statistics reset順序はpaper-era公式実装に合わせて
+います。densification postfix後のfinal pruneは、過去windowの`max_radii2D`を
+参照しません。gradient accumulator、denominator、screen radiusはevent終了時に
+次window用のzero stateになります。
+
 ## Checkpointとresume
 
 新規保存されるversion 2 checkpointには、dynamic Gaussian model、Adam state、
@@ -134,9 +165,36 @@ opacity reset発生時は、`opacity_reset`、`opacity_num_clamped`、
 `opacity_reset_maximum`を追加します。event/reset反復は通常の`log_interval`外でも
 1 recordだけ出力します。
 
-既定の1000 Gaussian・800×800画像はCPU参照ラスタライザでは低速です。
-まず縮小設定や少数反復で動作確認してください。設計上も30,000反復の完走は
-この初期実装の完了条件ではありません。
+## 原論文benchmark
+
+`data/`へMip-NeRF360、Tanks&Temples、Deep Blending、Synthetic NeRFを配置後、
+学習前監査を実行します。dry-runはdataset path、split、native resolution、初期化、
+background、warm-up、SH scheduleを記録し、学習は開始しません。
+
+```bash
+python scripts/paper_benchmark_dry_run.py
+```
+
+manifestが`READY`であることを確認してから、逐次runnerを開始します。各sceneは
+独立subprocessで0→30Kを1回だけ実行し、7K/30K checkpointを保持します。完了済み
+sceneはskipし、中断runはcheckpointからresumeします。
+
+```bash
+python scripts/run_paper_benchmark.py \
+  --manifest output/paper_benchmark/manifest.json \
+  --continue-on-oom
+
+python scripts/generate_paper_benchmark_report.py \
+  --manifest output/paper_benchmark/manifest.json
+
+python scripts/generate_paper_benchmark_qualitative.py \
+  --manifest output/paper_benchmark/manifest.json
+```
+
+`output/`にはcheckpoint、metrics、VRAM telemetry、CSV/JSON、Markdown report、
+定性的renderが生成されます。これらは大容量のためGit管理対象外です。
+
+CPU参照ラスタライザは検証用途では有用ですが、高解像度30K benchmarkには低速です。
 
 ## テスト
 
@@ -147,3 +205,6 @@ python -m pytest
 テストには数式単体テスト、解析ヤコビアン・autograd・数値微分の比較、
 投影と合成の統合テスト、チェックポイントおよびPLY往復テスト、
 TeXの全116式ラベルの追跡確認が含まれます。
+
+CUDA extensionが利用可能な環境では、CUDA smoke/integration testsも自動的に
+実行されます。利用できない環境では該当testsのみskipされます。

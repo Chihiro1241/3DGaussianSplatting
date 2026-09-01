@@ -1,5 +1,7 @@
 """Projection and differentiable reference rasterization APIs."""
 
+from gaussian_splatting.renderer.cuda_rasterizer import CudaProjectedGaussians
+
 from gaussian_splatting.renderer.projection import (
     ProjectedGaussians,
     gaussian_rendering_radius,
@@ -24,6 +26,7 @@ from gaussian_splatting.renderer.renderer import GaussianRenderer, RenderResult
 
 __all__ = [
     "GaussianRenderer",
+    "CudaProjectedGaussians",
     "ProjectedGaussians",
     "RenderResult",
     "clamped_projected_opacity",
@@ -42,4 +45,3 @@ __all__ = [
     "transmittance_termination",
     "visible_depth_condition",
 ]
-

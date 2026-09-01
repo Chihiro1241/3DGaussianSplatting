@@ -78,3 +78,5 @@ features:
   adaptive_density_control: true
   opacity_reset: true
   progressive_sh_degree: false
+  resolution_warmup: false
+  random_initial_sh_dc: false

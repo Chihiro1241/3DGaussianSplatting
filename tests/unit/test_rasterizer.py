@@ -142,3 +142,29 @@ def test_rasterize_gaussians_preserves_autograd_path() -> None:
     assert opacities.grad is not None
     assert bool(torch.isfinite(means_screen.grad).all())
 
+
+def test_rasterizer_clips_partially_outside_rectangle() -> None:
+    projected = _projected(
+        colors=torch.tensor([[1.0, 0.0, 0.0]]),
+        opacities=torch.tensor([[0.5]]),
+        means_screen=torch.tensor([[0.0, 1.0]]),
+    )
+    projected.rectangles = torch.tensor([[-100, 1, 0, 2]])
+
+    image, _ = rasterize_gaussians(projected, 3, 3, torch.zeros(3))
+
+    assert float(image.sum()) > 0.0
+    assert torch.equal(image[:, :, 2], torch.zeros(3, 3))
+
+
+def test_rasterizer_skips_fully_outside_rectangle() -> None:
+    projected = _projected(
+        colors=torch.tensor([[1.0, 0.0, 0.0]]),
+        opacities=torch.tensor([[0.5]]),
+    )
+    projected.rectangles = torch.tensor([[-100, -10, 0, 2]])
+
+    image, transmittance = rasterize_gaussians(projected, 3, 3, torch.zeros(3))
+
+    assert torch.equal(image, torch.zeros(3, 3, 3))
+    assert torch.equal(transmittance, torch.ones(3, 3))

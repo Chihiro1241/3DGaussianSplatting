@@ -30,6 +30,8 @@ _NO_STATE = object()
 def create_optimizer(
     model: GaussianModel,
     config: Config | TrainingConfig,
+    *,
+    position_lr_scale: float = 1.0,
 ) -> torch.optim.Adam:
     """Create the six named Adam parameter groups required by the design.
 
@@ -40,7 +42,7 @@ def create_optimizer(
     if training.optimizer != "adam":
         raise ValueError("the initial implementation only supports optimizer='adam'")
     learning_rates = {
-        "means_world": training.position_lr_initial,
+        "means_world": training.position_lr_initial * position_lr_scale,
         "sh_dc": training.sh_dc_lr,
         "sh_rest": training.sh_rest_lr,
         "raw_opacities": training.opacity_lr,

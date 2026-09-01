@@ -114,6 +114,8 @@ class FeatureConfig:
     adaptive_density_control: bool
     opacity_reset: bool
     progressive_sh_degree: bool
+    resolution_warmup: bool
+    random_initial_sh_dc: bool
 
 
 @dataclass(frozen=True)
@@ -230,6 +232,8 @@ _SCHEMA: dict[str, tuple[type[Any], dict[str, object]]] = {
             "adaptive_density_control": bool,
             "opacity_reset": bool,
             "progressive_sh_degree": bool,
+            "resolution_warmup": bool,
+            "random_initial_sh_dc": bool,
         },
     ),
 }
@@ -450,8 +454,6 @@ def _validate_config(config: Config) -> None:
 
     _require(config.output.exist_policy == "error",
              "output.exist_policy must be error")
-    _require(not config.features.progressive_sh_degree,
-             "features.progressive_sh_degree is outside the initial implementation")
 
 
 def config_from_mapping(values: Mapping[str, object]) -> Config:

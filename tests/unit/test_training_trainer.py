@@ -12,7 +12,7 @@ from gaussian_splatting.renderer.renderer import GaussianRenderer
 from gaussian_splatting.training.density_control import ScreenSpaceDensityStatistics
 from gaussian_splatting.training.optimizer import create_optimizer
 from gaussian_splatting.training.schedules import PositionLearningRateScheduler
-from gaussian_splatting.training.trainer import Trainer
+from gaussian_splatting.training.trainer import Trainer, camera_to
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -127,6 +127,104 @@ def test_train_step_has_finite_gradients_and_updates_parameters(
         not torch.equal(parameter.detach(), before[name])
         for name, parameter in model.named_parameters()
     )
+
+
+def test_progressive_sh_degree_increases_at_thousand_iteration_boundary(
+    tmp_path: Path,
+) -> None:
+    base = _tiny_config()
+    config = replace(
+        base,
+        training=replace(base.training, iterations=3000),
+        features=replace(base.features, progressive_sh_degree=True),
+    )
+    model = _tiny_model()
+    model.set_active_sh_degree(0)
+    camera = _tiny_camera()
+    optimizer = create_optimizer(model, config)
+    scheduler = PositionLearningRateScheduler(optimizer, total_iterations=3000)
+    trainer = Trainer(
+        model=model,
+        renderer=GaussianRenderer(config.rendering),
+        train_cameras=[camera],
+        evaluation_cameras=[],
+        optimizer=optimizer,
+        scheduler=scheduler,
+        config=config,
+        output_directory=tmp_path,
+        camera_order=[0],
+    )
+
+    trainer.train_step(camera, iteration=999)
+    assert model.active_sh_degree == 0
+    trainer.train_step(camera, iteration=1000)
+    assert model.active_sh_degree == 1
+
+
+def test_resolution_warmup_selects_quarter_half_then_native(tmp_path: Path) -> None:
+    base = _tiny_config()
+    config = replace(
+        base, features=replace(base.features, resolution_warmup=True)
+    )
+    native = _tiny_camera()
+    quarter = camera_to(
+        native, device=torch.device("cpu"), dtype=torch.float32, resolution_scale=0.25
+    )
+    half = camera_to(
+        native, device=torch.device("cpu"), dtype=torch.float32, resolution_scale=0.5
+    )
+    model = _tiny_model()
+    optimizer = create_optimizer(model, config)
+    scheduler = PositionLearningRateScheduler(optimizer, total_iterations=3)
+    trainer = Trainer(
+        model=model,
+        renderer=GaussianRenderer(config.rendering),
+        train_cameras=[native],
+        train_cameras_quarter=[quarter],
+        train_cameras_half=[half],
+        evaluation_cameras=[],
+        optimizer=optimizer,
+        scheduler=scheduler,
+        config=config,
+        output_directory=tmp_path,
+        camera_order=[0],
+    )
+
+    assert trainer._camera_for_iteration(0, 250).width == quarter.width
+    assert trainer._camera_for_iteration(0, 251).width == half.width
+    assert trainer._camera_for_iteration(0, 500).width == half.width
+    assert trainer._camera_for_iteration(0, 501).width == native.width
+
+
+def test_training_without_evaluation_saves_fixed_checkpoint_only(tmp_path: Path) -> None:
+    config = _tiny_config()
+    model = _tiny_model()
+    camera = _tiny_camera()
+    optimizer = create_optimizer(model, config)
+    scheduler = PositionLearningRateScheduler(
+        optimizer,
+        total_iterations=config.training.iterations,
+        initial_learning_rate=config.training.position_lr_initial,
+        final_learning_rate=config.training.position_lr_final,
+    )
+    trainer = Trainer(
+        model=model,
+        renderer=GaussianRenderer(config.rendering),
+        train_cameras=[camera],
+        evaluation_cameras=[],
+        optimizer=optimizer,
+        scheduler=scheduler,
+        config=config,
+        output_directory=tmp_path,
+        camera_order=[0],
+    )
+
+    trainer.train()
+
+    assert (tmp_path / "checkpoints" / "iteration_00000003.pt").is_file()
+    assert (tmp_path / "checkpoints" / "latest.pt").is_file()
+    assert not (tmp_path / "checkpoints" / "best.pt").exists()
+    assert not (tmp_path / "metrics").exists()
 
 
 def test_train_step_accumulates_optional_density_statistics(

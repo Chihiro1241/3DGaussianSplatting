@@ -105,12 +105,11 @@ def test_density_control_feature_flags_are_independently_supported(
     assert config.features.opacity_reset is opacity_reset
 
 
-def test_progressive_sh_degree_remains_unsupported() -> None:
+def test_progressive_sh_degree_is_supported() -> None:
     values = asdict(load_config(DEFAULT_CONFIG))
     values["features"]["progressive_sh_degree"] = True
 
-    with pytest.raises(ConfigError, match="progressive_sh_degree"):
-        config_from_mapping(values)
+    assert config_from_mapping(values).features.progressive_sh_degree is True
 
 
 @pytest.mark.parametrize("key", ["densification_interval", "percent_dense"])

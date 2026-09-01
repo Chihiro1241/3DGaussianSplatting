@@ -254,9 +254,18 @@ def generate_initial_points(
         generator=generator,
     )
     points = target_tensor + (2.0 * unit_points - 1.0) * half_extent
-    colors = torch.tensor(
-        initialization.initial_rgb, dtype=dtype, device=generator_device
-    ).expand(initialization.num_gaussians, -1).clone()
+    if config.features.random_initial_sh_dc:
+        random_sh_dc = torch.rand(
+            (initialization.num_gaussians, 3),
+            dtype=dtype,
+            device=generator_device,
+            generator=generator,
+        ) / 255.0
+        colors = 0.5 + SH_DC_BASIS * random_sh_dc
+    else:
+        colors = torch.tensor(
+            initialization.initial_rgb, dtype=dtype, device=generator_device
+        ).expand(initialization.num_gaussians, -1).clone()
     return points.to(output_device), colors.to(output_device)
 
 
@@ -305,7 +314,7 @@ def initialize_gaussian_model(
         dtype=points.dtype,
         device=points.device,
     )
-    return GaussianModel(
+    model = GaussianModel(
         means_world=means_world,
         raw_quaternions=raw_quaternions,
         raw_scales=raw_scales,
@@ -315,6 +324,10 @@ def initialize_gaussian_model(
         epsilon_q=config.model.epsilon_q,
         sh_degree=config.model.sh_degree,
     )
+    model.set_active_sh_degree(
+        0 if config.features.progressive_sh_degree else config.model.sh_degree
+    )
+    return model
 
 
 __all__ = [

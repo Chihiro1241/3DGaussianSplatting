@@ -775,9 +775,9 @@ Blenderのカメラ情報と画像の変換規約を次のように固定する�
 標準実行コマンドは次のとおりとする。
 
 ```bash
-python scripts/train.py --data data --config configs/default.yaml --output output/run001
-python scripts/render.py --data data --checkpoint output/run001/checkpoints/latest.pt --split test --output output/run001/renders/test
-python scripts/evaluate.py --data data --checkpoint output/run001/checkpoints/latest.pt --split test --output output/run001/metrics/evaluation.json
+python scripts/train.py --data data --config configs/default.yaml --output output/runs/run001_example
+python scripts/render.py --data data --checkpoint output/runs/run001_example/checkpoints/latest.pt --split test --output output/runs/run001_example/renders/test
+python scripts/evaluate.py --data data --checkpoint output/runs/run001_example/checkpoints/latest.pt --split test --output output/runs/run001_example/metrics/evaluation.json
 ```
 
 ## 8. 設定ファイル
@@ -929,7 +929,7 @@ data/
 出力構成を次のように固定する。
 
 ```text
-output/run001/
+output/runs/run001_example/
 ├── config.yaml
 ├── train_log.jsonl
 ├── checkpoints/
@@ -1096,7 +1096,10 @@ def test_world_to_camera__eq_world_to_camera():
 3. CUDA/C++拡張
 4. SH次数の段階的増加
 
-適応的密度制御と不透明度resetは、このphaseの計画後にoptional PyTorch extensionとして実装済みである。CUDA/C++およびtile rasterizerへの移植は未実装である。
+適応的密度制御と不透明度resetに加え、GraphDeco公式
+`diff-gaussian-rasterization`を利用するCUDA/tile rasterizer adapter、
+progressive SH、resolution warm-upを実装済みである。Python/PyTorchの
+reference rasterizerは数式検証用として併存する。OpenGL viewerは未実装である。
 
 ## 13. 完了条件
 
@@ -1107,7 +1110,8 @@ def test_world_to_camera__eq_world_to_camera():
 - 主要関数の入出力形状が型注釈またはdocstringに明記されている。
 - 単体テスト、勾配テストおよび統合テストがすべて成功する。
 - 一視点過学習が11.4節の数値基準を満たす。
-- 既定値30,000反復を指定した学習を開始でき、100反復の小規模試験で`NaN`/`Inf`が生じない。初期実装で30,000反復を完走することは完了条件に含めない。
+- CUDA backendで原論文対象21 sceneを30,000反復まで完走し、7K/30Kの
+  checkpointとheld-out評価を再現可能な形で保存できる。
 - テスト視点についてPSNRを画像ごとに計算し、平均PSNRを出力できる。
 - 同一チェックポイントから11.4節の誤差基準を満たす再現可能なレンダリング結果と次反復の更新結果が得られる。
 
