@@ -330,3 +330,57 @@ def test_one_hundred_updates_remain_finite(tmp_path: Path) -> None:
         assert torch.isfinite(parameter).all()
         assert parameter.grad is not None
         assert torch.isfinite(parameter.grad).all()
+
+
+def _checkpoint_trainer(tmp_path: Path) -> Trainer:
+    config = _tiny_config()
+    model = _tiny_model()
+    optimizer = create_optimizer(model, config)
+    return Trainer(
+        model=model,
+        renderer=GaussianRenderer(config.rendering),
+        train_cameras=[_tiny_camera()],
+        evaluation_cameras=[],
+        optimizer=optimizer,
+        scheduler=PositionLearningRateScheduler(
+            optimizer,
+            total_iterations=config.training.iterations,
+            initial_learning_rate=config.training.position_lr_initial,
+            final_learning_rate=config.training.position_lr_final,
+        ),
+        config=config,
+        output_directory=tmp_path,
+        camera_order=[0],
+    )
+
+
+def test_latest_checkpoint_shares_storage_instead_of_duplicating(
+    tmp_path: Path,
+) -> None:
+    trainer = _checkpoint_trainer(tmp_path)
+
+    trainer.save_checkpoint(iteration=1)
+
+    numbered = tmp_path / "checkpoints" / "iteration_00000001.pt"
+    latest = tmp_path / "checkpoints" / "latest.pt"
+    assert latest.is_file()
+    assert latest.samefile(numbered)
+
+
+def test_updating_latest_checkpoint_preserves_earlier_numbered_checkpoints(
+    tmp_path: Path,
+) -> None:
+    trainer = _checkpoint_trainer(tmp_path)
+
+    trainer.save_checkpoint(iteration=1)
+    first = tmp_path / "checkpoints" / "iteration_00000001.pt"
+    first_bytes = first.read_bytes()
+
+    trainer.save_checkpoint(iteration=2)
+    trainer.save_recovery_checkpoint(iteration=3)
+
+    assert first.read_bytes() == first_bytes
+    assert torch.load(first, weights_only=False)["iteration"] == 1
+    latest = tmp_path / "checkpoints" / "latest.pt"
+    assert latest.samefile(tmp_path / "checkpoints" / "recovery.pt")
+    assert torch.load(latest, weights_only=False)["iteration"] == 3

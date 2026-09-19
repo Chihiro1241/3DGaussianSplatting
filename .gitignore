@@ -14,3 +14,7 @@ dist/
 .pytest_cache/
 .coverage
 htmlcov/
+/logs/
+/eval/gaussian_viz/
+/eval/loss_plots/
+/eval/logs/

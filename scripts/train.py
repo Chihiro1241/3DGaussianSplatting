@@ -36,6 +36,11 @@ from gaussian_splatting.training.screen_radius_diagnostics import (
 )
 from gaussian_splatting.training.schedules import PositionLearningRateScheduler
 from gaussian_splatting.training.schedules import compute_scene_extent
+from gaussian_splatting.training.snapshot import (
+    SNAPSHOT_DIRECTORY_NAME,
+    GaussianSnapshotWriter,
+    parse_iteration_list,
+)
 from gaussian_splatting.training.trainer import Trainer
 
 
@@ -96,6 +101,29 @@ def build_parser() -> argparse.ArgumentParser:
         default="reference",
         help="Gaussian rasterization backend (default: reference)",
     )
+    parser.add_argument(
+        "--snapshot-interval",
+        type=int,
+        default=0,
+        metavar="N",
+        help="record Gaussian centres, opacities, and count every N iterations "
+        "into <output>/snapshots for eval/snapshot_viewer.py (0 disables)",
+    )
+    parser.add_argument(
+        "--snapshot-iterations",
+        default=None,
+        metavar="LIST",
+        help="comma-separated extra iterations to snapshot regardless of "
+        "--snapshot-interval, e.g. 0,100,200,500",
+    )
+    parser.add_argument(
+        "--snapshot-max-points",
+        type=int,
+        default=20000,
+        metavar="K",
+        help="thin each snapshot to at most K Gaussians; 0 stores every "
+        "Gaussian (default: 20000)",
+    )
     return parser
 
 
@@ -139,6 +167,27 @@ def _prepare_output(
             )
     else:
         config_path.write_text(serialized, encoding="utf-8")
+
+
+def _build_snapshot_writer(
+    args: argparse.Namespace, run_directory: Path, *, frame: int
+) -> GaussianSnapshotWriter | None:
+    """Return a snapshot writer, or None when snapshotting was not requested."""
+
+    extra = parse_iteration_list(args.snapshot_iterations)
+    if args.snapshot_interval <= 0 and not extra:
+        return None
+    if args.snapshot_interval < 0:
+        raise ValueError("--snapshot-interval must not be negative")
+    if args.snapshot_max_points < 0:
+        raise ValueError("--snapshot-max-points must not be negative")
+    return GaussianSnapshotWriter(
+        run_directory / SNAPSHOT_DIRECTORY_NAME,
+        interval=args.snapshot_interval,
+        frame=frame,
+        max_points=args.snapshot_max_points or None,
+        extra_iterations=extra,
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -308,6 +357,7 @@ def main(argv: list[str] | None = None) -> int:
         profile_steps=args.profile_steps,
         milestone_iterations=tuple(args.milestone_iterations),
         stop_iteration=args.stop_after_iteration,
+        snapshot_writer=_build_snapshot_writer(args, args.output, frame=1),
     )
     try:
         trainer.train()

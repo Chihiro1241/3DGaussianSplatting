@@ -24,6 +24,14 @@ dev = [
   "pytest>=8,<9",
   "pytest-cov>=5,<7",
 ]
+eval = [
+  "torchmetrics[image]>=1.0.0,<2",
+  "scikit-image>=0.21.0,<1",
+]
+viz = [
+  "streamlit>=1.46,<2",
+  "plotly>=5.22,<7",
+]
 
 [tool.setuptools]
 package-dir = {"" = "src"}

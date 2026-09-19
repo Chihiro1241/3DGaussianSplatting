@@ -53,6 +53,12 @@ DATASET_SLUG = {
     "Deep Blending": "deepblending", "Synthetic NeRF": "synthetic",
 }
 
+# run の保存先はデータセット別: <root_3dgs>/<dataset>/runs/<scene>/
+DATASET_DIR = {
+    "Mip-NeRF360": "mipnerf360", "Tanks&Temples": "tandt",
+    "Deep Blending": "deepblending", "Synthetic NeRF": "nerf_synthetic",
+}
+
 PAPER_TIME_SECONDS = {
     "Mip-NeRF360": {"7000": 6 * 60 + 25, "30000": 41 * 60 + 33},
     "Tanks&Temples": {"7000": 6 * 60 + 55, "30000": 26 * 60 + 54},
@@ -96,9 +102,9 @@ class SceneDryRun:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-root", type=Path, default=Path("data"))
-    parser.add_argument("--output-root", type=Path, default=Path("output/paper_benchmark"))
-    parser.add_argument("--real-config", type=Path, default=Path("configs/paper_benchmark_real.yaml"))
-    parser.add_argument("--synthetic-config", type=Path, default=Path("configs/paper_benchmark_synthetic.yaml"))
+    parser.add_argument("--output-root", type=Path, default=Path("output/3DGS/benchmark_report"))
+    parser.add_argument("--real-config", type=Path, default=Path("configs/paper_benchmark/real.yaml"))
+    parser.add_argument("--synthetic-config", type=Path, default=Path("configs/paper_benchmark/synthetic.yaml"))
     return parser
 
 
@@ -239,7 +245,7 @@ def main() -> int:
     for dataset, scenes in DATASET_SCENES.items():
         for scene in scenes:
             candidates = discovered[scene]
-            output = output_root / "runs" / f"{DATASET_SLUG[dataset]}_{scene}"
+            output = output_root.parent / DATASET_DIR[dataset] / "runs" / scene
             paper7, paper30 = PAPER_PSNR[scene]
             if len(candidates) != 1:
                 status = "MISSING" if not candidates else "AMBIGUOUS"
