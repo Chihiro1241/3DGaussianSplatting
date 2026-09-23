@@ -24,9 +24,17 @@ from gaussian_splatting.training.trainer import camera_to
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--manifest", type=Path, default=Path("output/paper_benchmark/manifest.json"))
+    parser.add_argument("--manifest", type=Path, default=Path("output/3DGS/benchmark_report/manifest.json"))
     parser.add_argument("--overwrite", action="store_true")
     return parser
+
+
+DATASET_DIR = {
+    "Mip-NeRF360": "mipnerf360",
+    "Tanks&Temples": "tandt",
+    "Deep Blending": "deepblending",
+    "Synthetic NeRF": "nerf_synthetic",
+}
 
 
 def _slug(dataset: str, scene: str) -> str:
@@ -111,15 +119,18 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
     root = args.manifest.parent
-    qualitative_root = root / "qualitative"
+    # データセット別レイアウト: <root_3dgs>/<dataset>/{runs,qualitative}/<scene>/
+    # root (= benchmark_report/) はその一階層下にあるため親を辿る。
+    root_3dgs = root.parent
     figures_root = root / "report" / "figures"
     index: list[dict[str, Any]] = []
 
     for number, scene in enumerate(manifest["scenes"], start=1):
         dataset, name = scene["dataset"], scene["scene"]
         slug = _slug(dataset, name)
-        run_dir = root / "runs" / slug
-        output_dir = qualitative_root / slug
+        ds_dir = root_3dgs / DATASET_DIR[dataset]
+        run_dir = ds_dir / "runs" / name
+        output_dir = ds_dir / "qualitative" / name
         figure = figures_root / f"fig_{slug}.png"
         metadata_path = output_dir / "metadata.json"
         required = [output_dir / f"view_000_{suffix}.png" for suffix in ("gt", "7k", "30k", "err_7k", "err_30k")]
@@ -181,8 +192,8 @@ def main(argv: list[str] | None = None) -> int:
         index.append(metadata)
         print(f"[{number}/21] {name} {view_name} 7K={view_metrics_7k['psnr']:.3f} 30K={view_metrics_30k['psnr']:.3f}")
 
-    qualitative_root.mkdir(parents=True, exist_ok=True)
-    (qualitative_root / "index.json").write_text(json.dumps(index, indent=2) + "\n", encoding="utf-8")
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "qualitative_index.json").write_text(json.dumps(index, indent=2) + "\n", encoding="utf-8")
     return 0
 
 

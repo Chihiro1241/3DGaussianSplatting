@@ -73,19 +73,19 @@ JSONを想定します。RGBAは設定した黒または白背景へ合成して
 python scripts/train.py \
   --data data \
   --config configs/default.yaml \
-  --output output/runs/run001_example
+  --output output/blender/run001_example
 
 python scripts/render.py \
   --data data \
-  --checkpoint output/runs/run001_example/checkpoints/latest.pt \
+  --checkpoint output/blender/run001_example/checkpoints/latest.pt \
   --split test \
-  --output output/runs/run001_example/renders/test
+  --output output/blender/run001_example/renders/test
 
 python scripts/evaluate.py \
   --data data \
-  --checkpoint output/runs/run001_example/checkpoints/latest.pt \
+  --checkpoint output/blender/run001_example/checkpoints/latest.pt \
   --split test \
-  --output output/runs/run001_example/metrics/evaluation.json
+  --output output/blender/run001_example/metrics/evaluation.json
 ```
 
 学習再開時はチェックポイントの全乱数状態とカメラ選択状態を復元します。
@@ -94,8 +94,8 @@ python scripts/evaluate.py \
 python scripts/train.py \
   --data data \
   --config configs/default.yaml \
-  --output output/runs/run001_example \
-  --resume output/runs/run001_example/checkpoints/latest.pt
+  --output output/blender/run001_example \
+  --resume output/blender/run001_example/checkpoints/latest.pt
 ```
 
 ## Adaptive Density Control
@@ -181,18 +181,22 @@ sceneはskipし、中断runはcheckpointからresumeします。
 
 ```bash
 python scripts/run_paper_benchmark.py \
-  --manifest output/paper_benchmark/manifest.json \
+  --manifest output/paper_3dgs/manifest.json \
   --continue-on-oom
 
 python scripts/generate_paper_benchmark_report.py \
-  --manifest output/paper_benchmark/manifest.json
+  --manifest output/paper_3dgs/manifest.json
 
 python scripts/generate_paper_benchmark_qualitative.py \
-  --manifest output/paper_benchmark/manifest.json
+  --manifest output/paper_3dgs/manifest.json
 ```
 
 `output/`にはcheckpoint、metrics、VRAM telemetry、CSV/JSON、Markdown report、
 定性的renderが生成されます。これらは大容量のためGit管理対象外です。
+
+`output/`は目的別に4つに分かれます。実装検証は`implementation/`、3DGS論文の再現は
+`paper_3dgs/`、4DGS論文の再現は`paper_4dgs/`、自分のBlenderデータでの実験は`blender/`です。
+詳細は[experiments/README.md](experiments/README.md)を参照してください。
 
 CPU参照ラスタライザは検証用途では有用ですが、高解像度30K benchmarkには低速です。
 

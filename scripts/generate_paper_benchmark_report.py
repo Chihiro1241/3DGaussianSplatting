@@ -40,7 +40,7 @@ FEATURED_SCENES = {
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--manifest", type=Path, default=Path("output/paper_benchmark/manifest.json"))
+    parser.add_argument("--manifest", type=Path, default=Path("output/3DGS/benchmark_report/manifest.json"))
     return parser
 
 
@@ -246,7 +246,7 @@ def _paper_markdown(manifest: dict[str, Any], rows: list[dict[str, Any]], summar
     synth_summary = by_summary[("Synthetic NeRF", 30000)]
     lines.append(f"| **Avg.** | **{synth_summary['paper_psnr_average']:.3f}** | **{synth_summary['ours_psnr_average']:.3f}** | **{synth_summary['delta_psnr_average']:+.3f}** |")
 
-    lines.extend(["", "## 5. 定性的結果", "", "各図は30K per-view PSNRがscene平均に最も近いheld-out test viewを使用する。左からGT、7K、30K。単体画像と共通p99スケールのerror mapは `../qualitative/` に保存した。", ""])
+    lines.extend(["", "## 5. 定性的結果", "", "各図は30K per-view PSNRがscene平均に最も近いheld-out test viewを使用する。左からGT、7K、30K。単体画像と共通p99スケールのerror mapは `../../<dataset>/qualitative/<scene>/` に保存した。", ""])
     subsection = 1
     for dataset in ("Mip-NeRF360", "Tanks&Temples", "Deep Blending", "Synthetic NeRF"):
         lines.extend([f"### 5.{subsection} {dataset}", ""])
@@ -285,6 +285,14 @@ def _paper_markdown(manifest: dict[str, Any], rows: list[dict[str, Any]], summar
     return "\n".join(lines) + "\n"
 
 
+DATASET_DIR = {
+    "Mip-NeRF360": "mipnerf360",
+    "Tanks&Temples": "tandt",
+    "Deep Blending": "deepblending",
+    "Synthetic NeRF": "nerf_synthetic",
+}
+
+
 def _slug_for_report(dataset: str, scene: str) -> str:
     prefix = {"Mip-NeRF360": "mipnerf360", "Tanks&Temples": "tandt", "Deep Blending": "deepblending", "Synthetic NeRF": "synthetic"}[dataset]
     return f"{prefix}_{scene}"
@@ -311,7 +319,7 @@ def _appendix_markdown(manifest: dict[str, Any], rows: list[dict[str, Any]]) -> 
     lines.extend(["", "## A.5 定性的画像index", "", "代表viewは30K per-view PSNRがscene平均に最も近いtest view。各directoryにGT、7K、30K、error map、metadata.jsonを保存した。", "", "| Dataset | Scene | Comparison | Native images |", "|---|---|---|---|"])
     for scene in manifest["scenes"]:
         slug = _slug_for_report(scene["dataset"], scene["scene"])
-        lines.append(f"| {scene['dataset']} | {scene['scene']} | [figure](figures/fig_{slug}.png) | [qualitative](../qualitative/{slug}/) |")
+        lines.append(f"| {scene['dataset']} | {scene['scene']} | [figure](figures/fig_{slug}.png) | [qualitative](../../{DATASET_DIR[scene['dataset']]}/qualitative/{scene['scene']}/) |")
     return "\n".join(lines) + "\n"
 
 

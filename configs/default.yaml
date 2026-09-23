@@ -1,3 +1,8 @@
+# 動作確認・単体テスト用の最小設定。tests/ の多くが configs/default.yaml を
+# 直接読むので、パスもキー構成も動かさないこと。
+# 実験用の設定は configs/neu3d/ と configs/paper_benchmark/ にある。
+# 本番学習との主な違い: device auto / num_gaussians 20000 / iterations 5000 /
+# progressive_sh_degree・resolution_warmup 無効 / save_rendered_images true。
 runtime:
   device: auto
   dtype: float32

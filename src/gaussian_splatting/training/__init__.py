@@ -30,6 +30,13 @@ from gaussian_splatting.training.schedules import (
     density_control_schedule,
     position_learning_rate_schedule,
 )
+from gaussian_splatting.training.snapshot import (
+    GaussianSnapshotWriter,
+    discover_snapshot_frames,
+    read_snapshot,
+    read_snapshot_index,
+    write_snapshot_npz,
+)
 from gaussian_splatting.training.trainer import (
     EvaluationResult,
     Trainer,
@@ -40,6 +47,7 @@ from gaussian_splatting.training.trainer import (
 __all__ = [
     "LossResult",
     "GaussianCloneResult",
+    "GaussianSnapshotWriter",
     "GaussianDensityControlResult",
     "GaussianOpacityResetResult",
     "GaussianPruneResult",
@@ -58,13 +66,17 @@ __all__ = [
     "create_optimizer",
     "density_control_event_parameters",
     "density_control_schedule",
+    "discover_snapshot_frames",
     "keep_gaussian_parameters",
     "keep_and_append_gaussian_parameters",
     "position_learning_rate_schedule",
     "prune_gaussians",
+    "read_snapshot",
+    "read_snapshot_index",
     "replace_named_gaussian_parameter",
     "reset_gaussian_opacity",
     "run_density_control_event",
     "split_gaussians",
     "total_loss",
+    "write_snapshot_npz",
 ]

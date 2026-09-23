@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import random
 import shutil
 import time
@@ -38,6 +39,7 @@ from gaussian_splatting.training.schedules import (
 from gaussian_splatting.training.screen_radius_diagnostics import (
     ScreenRadiusDiagnostic,
 )
+from gaussian_splatting.training.snapshot import GaussianSnapshotWriter
 
 
 @dataclass(frozen=True)
@@ -148,6 +150,7 @@ class Trainer:
         profile_steps: int = 10,
         milestone_iterations: tuple[int, ...] = (),
         stop_iteration: int | None = None,
+        snapshot_writer: GaussianSnapshotWriter | None = None,
     ) -> None:
         if not train_cameras:
             raise ValueError("training camera set must be non-empty")
@@ -205,6 +208,11 @@ class Trainer:
             self.scene_extent = None
         self.density_statistics = density_statistics
         self.screen_radius_diagnostic = screen_radius_diagnostic
+        if snapshot_writer is not None and not isinstance(
+            snapshot_writer, GaussianSnapshotWriter
+        ):
+            raise TypeError("snapshot_writer must be a GaussianSnapshotWriter")
+        self.snapshot_writer = snapshot_writer
         self._started_at = time.monotonic()
         self.training_profiler = (
             TrainingProfiler(
@@ -493,6 +501,22 @@ class Trainer:
             "density_statistics": self.density_statistics,
         }
 
+    def _update_latest_checkpoint(self, source: Path) -> None:
+        """Point ``latest.pt`` at ``source`` without duplicating its bytes.
+
+        A copy would double the on-disk cost of every checkpoint, so link
+        instead. The existing link must be removed first: ``torch.save``
+        writes in place, and overwriting a link would corrupt whichever
+        checkpoint currently shares the inode.
+        """
+
+        latest = source.parent / "latest.pt"
+        latest.unlink(missing_ok=True)
+        try:
+            os.link(source, latest)
+        except OSError:
+            shutil.copyfile(source, latest)
+
     def save_checkpoint(self, iteration: int) -> None:
         """Save a numbered checkpoint and update ``latest.pt``."""
 
@@ -503,14 +527,14 @@ class Trainer:
                 f"refusing to overwrite numbered checkpoint: {numbered}"
             )
         save_checkpoint(numbered, **self._checkpoint_arguments(iteration))
-        shutil.copyfile(numbered, checkpoint_directory / "latest.pt")
+        self._update_latest_checkpoint(numbered)
 
     def save_recovery_checkpoint(self, iteration: int) -> None:
         """Overwrite one resumable checkpoint without accumulating large files."""
         checkpoint_directory = self.output_directory / "checkpoints"
         recovery = checkpoint_directory / "recovery.pt"
         save_checkpoint(recovery, **self._checkpoint_arguments(iteration))
-        shutil.copyfile(recovery, checkpoint_directory / "latest.pt")
+        self._update_latest_checkpoint(recovery)
 
     def _save_best_checkpoint(self, iteration: int) -> None:
         checkpoint_directory = self.output_directory / "checkpoints"
@@ -518,6 +542,20 @@ class Trainer:
             checkpoint_directory / "best.pt",
             **self._checkpoint_arguments(iteration),
         )
+
+    def _record_snapshot(self, iteration: int, *, force: bool = False) -> None:
+        """Store Gaussian centres, opacities, and count for the viewer.
+
+        Snapshot writing is excluded from the profiled training-loop timing by
+        the caller, and is a no-op unless a writer was supplied.
+        """
+
+        writer = self.snapshot_writer
+        if writer is None:
+            return
+        if not (force or writer.should_record(iteration)):
+            return
+        writer.record(self.model, iteration)
 
     def _write_log(self, result: TrainStepResult) -> None:
         learning_rates = {
@@ -627,6 +665,7 @@ class Trainer:
 
         final_iteration = self.stop_iteration
         self.model.train()
+        self._record_snapshot(self.start_iteration)
         self._training_loop_started_at = time.monotonic()
         for iteration in range(self.start_iteration + 1, final_iteration + 1):
             camera_index, _ = self._next_camera()
@@ -637,6 +676,7 @@ class Trainer:
             self._last_completed_iteration = iteration
             is_final = iteration == final_iteration
             is_milestone = iteration in self.milestone_iterations
+            self._record_snapshot(iteration, force=is_final)
             if is_milestone or is_final:
                 current_wall = self._prior_training_wall_seconds + (
                     time.monotonic() - self._training_loop_started_at

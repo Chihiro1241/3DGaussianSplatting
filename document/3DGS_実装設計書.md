@@ -775,9 +775,9 @@ Blenderのカメラ情報と画像の変換規約を次のように固定する�
 標準実行コマンドは次のとおりとする。
 
 ```bash
-python scripts/train.py --data data --config configs/default.yaml --output output/runs/run001_example
-python scripts/render.py --data data --checkpoint output/runs/run001_example/checkpoints/latest.pt --split test --output output/runs/run001_example/renders/test
-python scripts/evaluate.py --data data --checkpoint output/runs/run001_example/checkpoints/latest.pt --split test --output output/runs/run001_example/metrics/evaluation.json
+python scripts/train.py --data data --config configs/default.yaml --output output/blender/run001_example
+python scripts/render.py --data data --checkpoint output/blender/run001_example/checkpoints/latest.pt --split test --output output/blender/run001_example/renders/test
+python scripts/evaluate.py --data data --checkpoint output/blender/run001_example/checkpoints/latest.pt --split test --output output/blender/run001_example/metrics/evaluation.json
 ```
 
 ## 8. 設定ファイル
@@ -929,7 +929,7 @@ data/
 出力構成を次のように固定する。
 
 ```text
-output/runs/run001_example/
+output/blender/run001_example/
 ├── config.yaml
 ├── train_log.jsonl
 ├── checkpoints/

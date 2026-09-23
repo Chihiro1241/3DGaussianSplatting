@@ -35,7 +35,7 @@ def _read_json(path: Path, default: Any) -> Any:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--manifest", type=Path, default=Path("output/paper_benchmark/manifest.json"))
+    parser.add_argument("--manifest", type=Path, default=Path("output/3DGS/benchmark_report/manifest.json"))
     parser.add_argument("--scene", action="append", help="optional exact scene filter")
     parser.add_argument("--continue-on-oom", action="store_true", help="continue after OOM instead of stopping the batch")
     return parser
@@ -154,7 +154,7 @@ def _image_directory(dataset: str, scene: str) -> str:
 
 
 def _config(dataset: str) -> Path:
-    name = "paper_benchmark_synthetic.yaml" if dataset == "Synthetic NeRF" else "paper_benchmark_real.yaml"
+    name = "paper_benchmark/synthetic.yaml" if dataset == "Synthetic NeRF" else "paper_benchmark/real.yaml"
     return ROOT / "configs" / name
 
 
