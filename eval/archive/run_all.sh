@@ -121,7 +121,7 @@ done
 # 実測した展開名: vrig-3dprinter / vrig-chicken / vrig-peel-banana / broom2
 # (broom は "broom2"、banana は "vrig-peel-banana" として展開される)
 #
-# GT は配布画像 rgb/<倍率>/ ではなく eval/convert_hypernerf.py が書き出す
+# GT は配布画像 rgb/<倍率>/ ではなく data/convert_hypernerf.py が書き出す
 # converted/test/ を使う。変換器は主点オフセット・画素アスペクト比・
 # フレームごとの焦点距離差を画像側のクロップで吸収しており、レンダリング画像は
 # そのクロップ後の画角で出力されるため、配布画像とは画角が一致しない。

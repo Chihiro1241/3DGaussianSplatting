@@ -115,7 +115,7 @@ echo "=============================================================="
 
 if [ ! -d "$DATA_DIR" ]; then
     echo "[中止] データがありません: $DATA_DIR"
-    echo "       eval/convert_neu3d.py / eval/undistort_neu3d.py で変換してください。"
+    echo "       data/convert_neu3d.py / data/undistort_neu3d.py で変換してください。"
     exit 1
 fi
 if [ ! -f "$CONFIG" ]; then

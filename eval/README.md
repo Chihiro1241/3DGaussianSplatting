@@ -206,7 +206,7 @@ GT 索引から除外する。
 
 ## Neu3D (Neural 3D Video) — coffee_martini
 
-`eval/convert_neu3d.py` が Neu3D を本体の読める形へ変換する。全手順:
+`data/convert_neu3d.py` が Neu3D を本体の読める形へ変換する。全手順:
 
 ### 0. 前提
 
@@ -272,7 +272,7 @@ colmap image_undistorter --image_path data/neu3d/coffee_martini/colmap_input \
 ### 4. 変換
 
 ```bash
-python eval/convert_neu3d.py \
+python data/convert_neu3d.py \
   --colmap_dir   data/neu3d/coffee_martini/colmap/undistorted/sparse \
   --images_dir   data/neu3d/coffee_martini/colmap/undistorted/images \
   --out_dir      data/neu3d/coffee_martini/converted \
@@ -325,7 +325,7 @@ OpenCV で書き直さないこと: image_undistorter は出力解像度をカ�
 寸法と画素がずれる。
 
 ```bash
-python eval/undistort_neu3d.py \
+python data/undistort_neu3d.py \
     --frames_dir data/neu3d/coffee_martini/frames \
     --colmap_dir data/neu3d/coffee_martini/colmap/sparse/0 \
     --sparse_dir data/neu3d/coffee_martini/colmap/undistorted/sparse \

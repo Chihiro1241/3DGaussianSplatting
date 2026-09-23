@@ -1,5 +1,5 @@
 """
-eval/convert_neu3d.py
+data/convert_neu3d.py
 Neural 3D Video (Neu3D) 形式 -> 本体が読める形式への変換。
 
 本体の scripts/train.py / scripts/render.py / eval/evaluate.py には一切手を入れず、
@@ -7,13 +7,13 @@ Neural 3D Video (Neu3D) 形式 -> 本体が読める形式への変換。
 
 使い方:
   # COLMAP ネイティブ配置 (推奨)
-  python eval/convert_neu3d.py \
+  python data/convert_neu3d.py \
       --colmap_dir data/neu3d/coffee_martini/colmap/sparse/0 \
       --frames_dir data/neu3d/coffee_martini/frames \
       --out_dir    data/neu3d/coffee_martini/converted
 
   # NeRF Synthetic 形式も併せて出す場合
-  python eval/convert_neu3d.py ... --nerf_out_dir data/neu3d/coffee_martini/converted_nerf
+  python data/convert_neu3d.py ... --nerf_out_dir data/neu3d/coffee_martini/converted_nerf
 
 ----------------------------------------------------------------------------
 入力形式 (実データで確認済み: coffee_martini)

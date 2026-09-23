@@ -1,10 +1,10 @@
 """
-eval/undistort_neu3d.py
+data/undistort_neu3d.py
 Neu3D の全フレームを第 1 フレームと同一の処理で undistort し、
 scripts/train_4d.py が読める「1 フレーム 1 シーンディレクトリ」配置を作る。
 
 使い方:
-    python eval/undistort_neu3d.py \
+    python data/undistort_neu3d.py \
         --frames_dir data/neu3d/coffee_martini/frames \
         --colmap_dir data/neu3d/coffee_martini/colmap/sparse/0 \
         --out_dir    data/neu3d/coffee_martini/converted_4d \
@@ -15,7 +15,7 @@ scripts/train_4d.py が読める「1 フレーム 1 シーンディレクトリ�
 なぜ OpenCV で書き直さず colmap image_undistorter を呼ぶのか
 ----------------------------------------------------------------------------
 第 1 フレームの undistort は外部バイナリ ``colmap image_undistorter`` が行った
-(eval/convert_neu3d.py は歪み補正済みの出力を受け取るだけ)。
+(data/convert_neu3d.py は歪み補正済みの出力を受け取るだけ)。
 
 image_undistorter は出力解像度をカメラごとに「黒縁が最小になる」最適化で決めて
 おり、coffee_martini では 2674x2005 〜 2698x2023 とカメラごとに異なる値が出て

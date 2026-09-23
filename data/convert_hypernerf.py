@@ -1,12 +1,12 @@
 """
-eval/convert_hypernerf.py
+data/convert_hypernerf.py
 Nerfies/HyperNeRF 形式 -> NeRF Synthetic 形式 (transforms_*.json) への変換。
 
 本体の train.py / render.py / evaluate.py には一切手を入れず、データ側だけを
 このリポジトリが読める形へ寄せるためのアダプタ。
 
 使い方:
-  python eval/convert_hypernerf.py \
+  python data/convert_hypernerf.py \
       --scene_dir data/dynamic/hypernerf/vrig-chicken \
       --out_dir   data/dynamic/hypernerf/vrig-chicken/converted \
       --resolution 2x
