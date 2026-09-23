@@ -1,19 +1,19 @@
 # scripts/
 
-論文再現ベンチマーク（`output/paper_3dgs/`）に関するスクリプト群。
+論文再現ベンチマーク（`output/3DGS/benchmark_report/`）に関するスクリプト群。
 
 ## レポート成果物の生成
 
-`output/paper_3dgs/runs/<scene>/` 配下の学習ログから、論文原稿用の表と図を生成する5本。
+`output/3DGS/<dataset>/<scene>/<scene>/` 配下の学習ログから、論文原稿用の表と図を生成する5本。
 `run_paper_benchmark.py` による全21シーンの学習が完了していることが前提。
 
 | スクリプト | 用途 | 入力 | 出力 |
 | --- | --- | --- | --- |
-| `collect.py` | シーン別のGaussian数・メモリ使用量を集計 | `training_telemetry.json`, `vram_samples_*.json`, `validation_summary.json` | `output/paper_3dgs/report/scene_memory.csv` |
-| `make_table.py` | 上記CSVをLaTeX表に整形 | `scene_memory.csv` | `output/paper_3dgs/report/scene_memory_table.tex` |
-| `make_plot.py` | Gaussian数の推移を作図（2パネル、8×8インチ） | `train_log.jsonl` | `output/paper_3dgs/report/gaussian_count_plot.pdf` |
-| `make_loss_plot.py` | 損失の推移を作図（2パネル、8×8インチ） | `train_log.jsonl` | `output/paper_3dgs/report/loss_plot.pdf` |
-| `make_loss_psnr_plot.py` | 損失とPSNRの推移を作図（2×2パネル、12×8インチ） | `train_log.jsonl` | `output/paper_3dgs/report/loss_psnr_plot.pdf` |
+| `collect.py` | シーン別のGaussian数・メモリ使用量を集計 | `training_telemetry.json`, `vram_samples_*.json`, `validation_summary.json` | `output/3DGS/benchmark_report/report/scene_memory.csv` |
+| `make_table.py` | 上記CSVをLaTeX表に整形 | `scene_memory.csv` | `output/3DGS/benchmark_report/report/scene_memory_table.tex` |
+| `make_plot.py` | Gaussian数の推移を作図（2パネル、8×8インチ） | `train_log.jsonl` | `output/3DGS/benchmark_report/report/gaussian_count_plot.pdf` |
+| `make_loss_plot.py` | 損失の推移を作図（2パネル、8×8インチ） | `train_log.jsonl` | `output/3DGS/benchmark_report/report/loss_plot.pdf` |
+| `make_loss_psnr_plot.py` | 損失とPSNRの推移を作図（2×2パネル、12×8インチ） | `train_log.jsonl` | `output/3DGS/benchmark_report/report/loss_psnr_plot.pdf` |
 
 ### 実行順序
 

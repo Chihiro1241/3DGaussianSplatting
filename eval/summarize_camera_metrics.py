@@ -3,7 +3,7 @@ eval/summarize_camera_metrics.py
 eval/evaluate.py が書いた per-image CSV を、カメラ別・全体で集計する。
 
 使い方:
-    python eval/summarize_camera_metrics.py --csv eval/results/baseline_30k.csv
+    python eval/summarize_camera_metrics.py --csv output/4DGS/neu3d/coffee_martini/baseline_30k/results/metrics.csv
 
 ----------------------------------------------------------------------------
 なぜ summarize_metrics_4d.py を使わないのか

@@ -7,11 +7,11 @@
 #   setsid nohup runs/3DGS.sh deepblending > logs/3dgs_deepblending.log 2>&1 &
 #
 # 工程: 学習 -> チェックポイント評価 (metrics JSON) -> test view 描画 ->
-#       画像ベース評価 (CSV)。GPU は 1 枚なので全工程を直列に回す。
+#       画像ベース評価 (CSV) -> eval.md 生成。GPU は 1 枚なので全工程を直列に回す。
 #       1 シーンが失敗しても残りは続行し、最後に成功/失敗を一覧で出す。
 #
 # 環境変数:
-#   STAGES="train metrics render eval"   実行する工程 (既定は全部)
+#   STAGES="train metrics render eval report"  実行する工程 (既定は全部)
 #   RENDER_BACKEND=cuda|reference        既定 cuda
 #   DEVICE=cuda|cpu                      画像ベース評価の device (既定 cuda)
 #   MILESTONES="7000 30000"              保持・評価する iteration
@@ -40,12 +40,11 @@ cd "$REPO" || exit 1
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate 3dgs
 
-STAGES="${STAGES:-train metrics render eval}"
+STAGES="${STAGES:-train metrics render eval report}"
 RENDER_BACKEND="${RENDER_BACKEND:-cuda}"
 DEVICE="${DEVICE:-cuda}"
 MILESTONES="${MILESTONES:-7000 30000}"
 DRY_RUN="${DRY_RUN:-0}"
-RESULTS_DIR="$REPO/eval/results"
 
 # 最終チェックポイントの iteration = MILESTONES の最大値。
 FINAL_ITERATION=$(printf '%s\n' $MILESTONES | sort -n | tail -1)
@@ -64,9 +63,8 @@ run_step () {
 #   OUT_DATASET   : output/3DGS/<OUT_DATASET>/ の名前
 #   CONFIG        : 背景色が違うので synthetic と real で分かれる
 #   EVAL_DATASET  : eval/evaluate.py の --dataset (指標セットの選択)
-#   LABEL_PREFIX  : eval/results/<EVAL_DATASET>_<LABEL_PREFIX><scene>.csv
-#                   eval/archive/run_all.sh と同じ命名にして
-#                   eval/summarize.py にそのまま拾わせる
+#                   CSV は output/3DGS/<OUT_DATASET>/<scene>/results/metrics.csv に出る。
+#                   eval/summarize.py はディレクトリ名から指標セットを決める
 #   RGBA_BG       : 学習 config の data.rgba_background と必ず揃える
 #                   (食い違うと透明背景が黒く読まれて PSNR が 1dB 台に落ちる)
 # ---------------------------------------------------------------------------
@@ -77,7 +75,6 @@ setup_dataset () {
             OUT_DATASET="nerf_synthetic"
             CONFIG="configs/paper_benchmark/synthetic.yaml"
             EVAL_DATASET="nerf_synthetic"
-            LABEL_PREFIX=""
             RGBA_BG="white"
             ALL_SCENES="chair drums ficus hotdog lego materials mic ship"
             ;;
@@ -86,7 +83,6 @@ setup_dataset () {
             OUT_DATASET="mipnerf360"
             CONFIG="configs/paper_benchmark/real.yaml"
             EVAL_DATASET="colmap"
-            LABEL_PREFIX="mipnerf360_"
             RGBA_BG="black"
             ALL_SCENES="bicycle bonsai counter flowers garden kitchen room stump treehill"
             ;;
@@ -95,7 +91,6 @@ setup_dataset () {
             OUT_DATASET="tandt"
             CONFIG="configs/paper_benchmark/real.yaml"
             EVAL_DATASET="colmap"
-            LABEL_PREFIX="tandt_"
             RGBA_BG="black"
             ALL_SCENES="train truck"
             ;;
@@ -104,7 +99,6 @@ setup_dataset () {
             OUT_DATASET="deepblending"
             CONFIG="configs/paper_benchmark/real.yaml"
             EVAL_DATASET="colmap"
-            LABEL_PREFIX="deepblending_"
             RGBA_BG="black"
             ALL_SCENES="drjohnson playroom"
             ;;
@@ -145,11 +139,12 @@ ground_truth_dir () {
 run_scene () {
     local scene="$1"
     local data_dir="$DATA_ROOT/$scene"
-    local run_dir="output/3DGS/$OUT_DATASET/runs/$scene"
-    local render_dir="output/3DGS/$OUT_DATASET/renders/$scene"
+    # 1 シーン 1 ランなので、シーンのディレクトリがそのままランになる。
+    local run_dir="output/3DGS/$OUT_DATASET/$scene"
+    local render_dir="$run_dir/renders"
     local image_dir; image_dir="$(image_directory "$scene")"
     local gt_dir; gt_dir="$(ground_truth_dir "$scene")"
-    local label="${EVAL_DATASET}_${LABEL_PREFIX}${scene}"
+    local result_dir="$run_dir/results"
     local final_ckpt; final_ckpt="$(printf '%s/checkpoints/iteration_%08d.pt' "$run_dir" "$FINAL_ITERATION")"
 
     echo ""
@@ -233,18 +228,31 @@ run_scene () {
     fi
 
     # ------------------------------------------- 4. 画像ベース評価 (CSV)
-    # eval/archive/run_all.sh と同じ CSV 名にしておくと eval/summarize.py が
-    # そのまま全シーン集計に使える。
+    # ラン直下の results/ に置く。eval/summarize.py は
+    # ディレクトリ名から指標セットを引くので、ファイル名はシーン名だけでよい。
     if want eval; then
         echo ""
         echo "--- 画像ベース評価 (背景 ${RGBA_BG}) ---"
-        run_step mkdir -p "$RESULTS_DIR"
+        run_step mkdir -p "$result_dir"
         run_step python eval/evaluate.py \
             --dataset "$EVAL_DATASET" \
             --render_dir "$render_dir" --gt_dir "$gt_dir" \
-            --output_csv "$RESULTS_DIR/${label}.csv" \
+            --output_csv "$result_dir/metrics.csv" \
             --rgba_background "$RGBA_BG" --device "$DEVICE" \
             || { echo "[失敗] 画像ベース評価: $scene"; return 1; }
+    fi
+
+    # ------------------------------------------------- 5. eval.md 生成
+    # 人が書く節 (定性的評価 / AIによる初見) は既存 eval.md から引き継がれる。
+    if want report; then
+        echo ""
+        echo "--- eval.md 生成 ---"
+        run_step python eval/make_eval_report.py \
+            --run_dir "$run_dir" --tag "$scene" \
+            --results_dir "$result_dir" \
+            --render_backend "$RENDER_BACKEND" \
+            --command "runs/3DGS.sh $OUT_DATASET $scene" \
+            || echo "[失敗] eval.md 生成: $scene"
     fi
 
     echo ""

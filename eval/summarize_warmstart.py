@@ -4,10 +4,10 @@ warm-start あり / なし の収束を数値で突き合わせる。
 
 使い方:
     python eval/summarize_warmstart.py \
-        --warm_dir     eval/loss_logs/warmstart/coffee_martini \
-        --baseline_dir eval/loss_logs/baseline/coffee_martini \
-        --warm_run     output/4DGS/neu3d/warmstart_neu3d_trial \
-        --baseline_run output/4DGS/neu3d/baseline_neu3d_trial
+        --warm_dir     output/4DGS/neu3d/coffee_martini/warmstart_neu3d_trial/loss_logs \
+        --baseline_dir output/4DGS/neu3d/coffee_martini/baseline_neu3d_trial/loss_logs \
+        --warm_run     output/4DGS/neu3d/coffee_martini/warmstart_neu3d_trial \
+        --baseline_run output/4DGS/neu3d/coffee_martini/baseline_neu3d_trial
 
 出す指標:
   * 収束損失 = 最終 100 iter の平均 (plot_loss.py と同じ定義)

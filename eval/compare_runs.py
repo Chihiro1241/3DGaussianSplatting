@@ -5,8 +5,8 @@ eval/evaluate_per_frame.py が書いた 2 本の CSV を突き合わせて、
 
 使い方:
     python eval/compare_runs.py \
-        --a eval/results/baseline_30k_per_frame.csv  --a_label "30,000 iter" \
-        --b eval/results/baseline_7k_per_frame.csv   --b_label "7,000 iter" \
+        --a output/4DGS/neu3d/coffee_martini/baseline_30k/results/per_frame.csv  --a_label "30,000 iter" \
+        --b output/4DGS/neu3d/coffee_martini/baseline_7k/results/per_frame.csv   --b_label "7,000 iter" \
         --block 10
 
 同じフレーム集合だけを比べる。片方にしか無いフレームを混ぜると

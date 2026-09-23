@@ -12,10 +12,10 @@ Config の再構築や model の再構築は行わない。
 使い方::
 
     # 単一シーンの run
-    python eval/extract_snapshots.py --run output/4DGS/neu3d/neu3d_coffee_martini_frame1
+    python eval/extract_snapshots.py --run output/4DGS/neu3d/coffee_martini/neu3d_coffee_martini_frame1
 
     # 4D run root (frame_0001/ ... を自動で走査)
-    python eval/extract_snapshots.py --run output/4DGS/neu3d/warmstart_neu3d_trial
+    python eval/extract_snapshots.py --run output/4DGS/neu3d/coffee_martini/warmstart_neu3d_trial
 
 ``latest.pt`` / ``best.pt`` / ``recovery.pt`` は番号付きチェックポイントの
 複製または別系統なので既定では無視する。

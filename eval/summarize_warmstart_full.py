@@ -4,10 +4,10 @@ eval/summarize_warmstart_full.py
 
 使い方:
     python eval/summarize_warmstart_full.py \
-        --warm_dir     eval/loss_logs/warmstart_full/coffee_martini \
-        --baseline_dir eval/loss_logs/baseline_full/coffee_martini \
-        --warm_run     output/4DGS/neu3d/warmstart_neu3d_full \
-        --baseline_run output/4DGS/neu3d/baseline_neu3d_full
+        --warm_dir     output/4DGS/neu3d/coffee_martini/warmstart_neu3d_full/loss_logs \
+        --baseline_dir output/4DGS/neu3d/coffee_martini/baseline_neu3d_full/loss_logs \
+        --warm_run     output/4DGS/neu3d/coffee_martini/warmstart_neu3d_full \
+        --baseline_run output/4DGS/neu3d/coffee_martini/baseline_neu3d_full
 
 出す項目:
   1. 損失推移 (フレーム平均) を iter 500/1000/1500/2000 で

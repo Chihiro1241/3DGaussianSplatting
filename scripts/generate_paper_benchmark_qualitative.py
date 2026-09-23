@@ -119,7 +119,7 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
     root = args.manifest.parent
-    # データセット別レイアウト: <root_3dgs>/<dataset>/{runs,qualitative}/<scene>/
+    # データセット別レイアウト: <root_3dgs>/<dataset>/<scene>/{,qualitative/}
     # root (= benchmark_report/) はその一階層下にあるため親を辿る。
     root_3dgs = root.parent
     figures_root = root / "report" / "figures"
@@ -129,8 +129,8 @@ def main(argv: list[str] | None = None) -> int:
         dataset, name = scene["dataset"], scene["scene"]
         slug = _slug(dataset, name)
         ds_dir = root_3dgs / DATASET_DIR[dataset]
-        run_dir = ds_dir / "runs" / name
-        output_dir = ds_dir / "qualitative" / name
+        run_dir = ds_dir / name
+        output_dir = run_dir / "qualitative"
         figure = figures_root / f"fig_{slug}.png"
         metadata_path = output_dir / "metadata.json"
         required = [output_dir / f"view_000_{suffix}.png" for suffix in ("gt", "7k", "30k", "err_7k", "err_30k")]

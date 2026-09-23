@@ -110,5 +110,5 @@ configs/
 | `configs/hypernerf.yaml` | 変更なし |
 
 `scripts/` `eval/` の参照は更新済み。**既に書き出された実行ログと生成物
-（`eval/logs/*.log`、`eval/loss_plots/*.html`、`output/` 配下）は実行時の記録
+（`output/**/logs/*.log`、`output/**/loss_plots/*.html` など `output/` 配下）は実行時の記録
 なので旧パスのまま残してある。**

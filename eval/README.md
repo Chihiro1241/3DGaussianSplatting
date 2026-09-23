@@ -41,20 +41,20 @@ MS-SSIM と LPIPS は `nan` になる）。
 # 1. test view を書き出す
 python scripts/render.py \
     --data data/nerf_synthetic/lego \
-    --checkpoint output/paper_3dgs/runs/synthetic_lego/checkpoints/iteration_00030000.pt \
+    --checkpoint output/3DGS/nerf_synthetic/lego/checkpoints/iteration_00030000.pt \
     --split test --render-backend cuda \
-    --output output/paper_3dgs/renders/nerf_synthetic/lego
+    --output output/3DGS/nerf_synthetic/lego/renders
 
 # 2. 評価
 python eval/evaluate.py \
     --dataset nerf_synthetic \
-    --render_dir output/paper_3dgs/renders/nerf_synthetic/lego \
+    --render_dir output/3DGS/nerf_synthetic/lego/renders \
     --gt_dir     data/nerf_synthetic/lego/test \
-    --output_csv eval/results/nerf_synthetic_lego.csv
+    --output_csv output/3DGS/nerf_synthetic/lego/results/metrics.csv
 
 # 3. 一括実行 + 集計
 bash eval/archive/run_all.sh
-python eval/summarize.py --results_dir eval/results
+python eval/summarize.py --results_dir output
 ```
 
 環境変数 `BASE_RENDER` / `BASE_GT` / `OUTPUT_DIR` / `DEVICE` / `PYTHON` で
@@ -121,8 +121,8 @@ python scripts/train_4d.py \
 run は、チェックポイントから抽出できる。再学習は不要。
 
 ```bash
-python eval/extract_snapshots.py --run output/warmstart_neu3d_trial
-python eval/extract_snapshots.py --run output/neu3d_coffee_martini_frame1 --stride 2
+python eval/extract_snapshots.py --run output/4DGS/neu3d/coffee_martini/warmstart_neu3d_trial
+python eval/extract_snapshots.py --run output/4DGS/neu3d/coffee_martini/neu3d_coffee_martini_frame1 --stride 2
 ```
 
 `--run` は単一シーンの run でも 4D run root でもよい（`frame_*/` を自動で走査）。
@@ -131,7 +131,7 @@ python eval/extract_snapshots.py --run output/neu3d_coffee_martini_frame1 --stri
 ### ビューワーの起動
 
 ```bash
-streamlit run eval/snapshot_viewer.py -- --run output/warmstart_neu3d_trial
+streamlit run eval/snapshot_viewer.py -- --run output/4DGS/neu3d/coffee_martini/warmstart_neu3d_trial
 ```
 
 `--run` の前の `--` は必須（Streamlit 自身の引数と区別するため）。省略した場合は
@@ -154,7 +154,7 @@ streamlit run eval/snapshot_viewer.py -- --run output/warmstart_neu3d_trial
 ### データ量
 
 パラメータ3種だけを float32 で持つため、チェックポイントより桁違いに軽い。
-実測（`output/neu3d_coffee_martini_frame1`、30 コマ、60 万ガウシアン、20000 点へ間引き）:
+実測（`output/4DGS/neu3d/coffee_martini/neu3d_coffee_martini_frame1`、30 コマ、60 万ガウシアン、20000 点へ間引き）:
 
 | | サイズ |
 |---|---|
@@ -295,7 +295,7 @@ coffee_martini では平均相対誤差 0.0023 / 最大 0.0105 だった。
 python scripts/train.py \
   --data   data/neu3d/coffee_martini/converted \
   --config configs/neu3d/base.yaml \
-  --output output/neu3d_coffee_martini_frame1 \
+  --output output/4DGS/neu3d/coffee_martini/neu3d_coffee_martini_frame1 \
   --image-directory images_2 \
   --render-backend cuda
 ```
@@ -365,7 +365,7 @@ converted_4d/
 # warm-start あり
 python eval/warmstart_trainer.py \
     --source_path data/neu3d/coffee_martini/converted_4d \
-    --output_dir  output/warmstart_neu3d_trial \
+    --output_dir  output/4DGS/neu3d/coffee_martini/warmstart_neu3d_trial \
     --config      configs/neu3d/trial_5000.yaml \
     --start_frame 1 --end_frame 10 \
     --image-directory images --render-backend cuda
@@ -386,14 +386,14 @@ python eval/warmstart_trainer.py ... --no_warmstart
 ### 損失曲線
 
 ```bash
-python eval/loss_logger.py --run_dir output/warmstart_neu3d_trial \
-    --out_dir eval/loss_logs_warmstart --scene coffee_martini
-python eval/loss_logger.py --run_dir output/baseline_neu3d_trial \
-    --out_dir eval/loss_logs_baseline --scene coffee_martini
+python eval/loss_logger.py --run_dir output/4DGS/neu3d/coffee_martini/warmstart_neu3d_trial \
+    --out_dir output/4DGS/neu3d/coffee_martini/warmstart_neu3d_trial/loss_logs
+python eval/loss_logger.py --run_dir output/4DGS/neu3d/coffee_martini/baseline_neu3d_trial \
+    --out_dir output/4DGS/neu3d/coffee_martini/baseline_neu3d_trial/loss_logs
 python eval/plot_loss.py \
-    --log_dir      eval/loss_logs_warmstart/coffee_martini \
-    --baseline_dir eval/loss_logs_baseline/coffee_martini \
-    --out_html     eval/loss_plots/neu3d_coffee_martini_trial.html
+    --log_dir      output/4DGS/neu3d/coffee_martini/warmstart_neu3d_trial/loss_logs \
+    --baseline_dir output/4DGS/neu3d/coffee_martini/baseline_neu3d_trial/loss_logs \
+    --out_html     output/4DGS/neu3d/coffee_martini/loss_plots/neu3d_coffee_martini_trial.html
 ```
 
 `plot_loss.py` の「収束 iter」(損失が初期値の 10% に落ちた iter) は
@@ -404,10 +404,10 @@ python eval/plot_loss.py \
 
 ```bash
 python eval/summarize_warmstart.py \
-    --warm_dir     eval/loss_logs_warmstart/coffee_martini \
-    --baseline_dir eval/loss_logs_baseline/coffee_martini \
-    --warm_run     output/warmstart_neu3d_trial \
-    --baseline_run output/baseline_neu3d_trial
+    --warm_dir     output/4DGS/neu3d/coffee_martini/warmstart_neu3d_trial/loss_logs \
+    --baseline_dir output/4DGS/neu3d/coffee_martini/baseline_neu3d_trial/loss_logs \
+    --warm_run     output/4DGS/neu3d/coffee_martini/warmstart_neu3d_trial \
+    --baseline_run output/4DGS/neu3d/coffee_martini/baseline_neu3d_trial
 ```
 
 **「収束 iter = 損失が初期値の 10%」は Neu3D では使えない**。`log_interval: 100`
@@ -432,7 +432,7 @@ checkpoint_interval を 2000 にしたのは 1 フレーム 2 個だと 600 フ�
 # warm-start あり (約 7-8 時間)
 python eval/warmstart_trainer.py \
     --source_path data/neu3d/coffee_martini/converted_4d \
-    --output_dir  output/warmstart_neu3d_full \
+    --output_dir  output/4DGS/neu3d/coffee_martini/warmstart_neu3d_full \
     --config      configs/neu3d/warmstart_2000.yaml \
     --start_frame 1 --end_frame 300 \
     --image-directory images --render-backend cuda \
@@ -440,7 +440,7 @@ python eval/warmstart_trainer.py \
 
 # baseline (約 3 時間)
 python eval/warmstart_trainer.py ... --no_warmstart \
-    --output_dir output/baseline_neu3d_full
+    --output_dir output/4DGS/neu3d/coffee_martini/baseline_neu3d_full
 ```
 
 ### 途中再開
@@ -450,14 +450,14 @@ python eval/warmstart_trainer.py ... --no_warmstart \
 python3 -c "
 import json, shutil
 from pathlib import Path
-d=json.load(open('output/warmstart_neu3d_full/frames_4d.json'))
+d=json.load(open('output/4DGS/neu3d/coffee_martini/warmstart_neu3d_full/frames_4d.json'))
 done={int(r['frame']) for r in d['frames'] if r['status']=='COMPLETED'}
-for p in sorted(Path('output/warmstart_neu3d_full').glob('frame_*')):
+for p in sorted(Path('output/4DGS/neu3d/coffee_martini/warmstart_neu3d_full').glob('frame_*')):
     if int(p.name.split('_')[1]) not in done: shutil.rmtree(p)
 "
 python eval/warmstart_trainer.py ... \
     --start_frame 48 \
-    --carry_over_checkpoint output/warmstart_neu3d_full/frame_0047/checkpoints/latest.pt
+    --carry_over_checkpoint output/4DGS/neu3d/coffee_martini/warmstart_neu3d_full/frame_0047/checkpoints/latest.pt
 ```
 
 `--carry_over_checkpoint` を**忘れると再開フレームが SfM 点群から始まり**、
@@ -484,19 +484,19 @@ Gaussians` になっていることを必ず確認すること。
 ### フェーズ 2: 損失集計
 
 ```bash
-python eval/loss_logger.py --run_dir output/warmstart_neu3d_full \
-    --out_dir eval/loss_logs_warmstart_full --scene coffee_martini
-python eval/loss_logger.py --run_dir output/baseline_neu3d_full \
-    --out_dir eval/loss_logs_baseline_full --scene coffee_martini
+python eval/loss_logger.py --run_dir output/4DGS/neu3d/coffee_martini/warmstart_neu3d_full \
+    --out_dir output/4DGS/neu3d/coffee_martini/warmstart_neu3d_full/loss_logs
+python eval/loss_logger.py --run_dir output/4DGS/neu3d/coffee_martini/baseline_neu3d_full \
+    --out_dir output/4DGS/neu3d/coffee_martini/baseline_neu3d_full/loss_logs
 python eval/plot_loss.py \
-    --log_dir      eval/loss_logs_warmstart_full/coffee_martini \
-    --baseline_dir eval/loss_logs_baseline_full/coffee_martini \
-    --out_html     eval/loss_plots/neu3d_coffee_martini_full.html
+    --log_dir      output/4DGS/neu3d/coffee_martini/warmstart_neu3d_full/loss_logs \
+    --baseline_dir output/4DGS/neu3d/coffee_martini/baseline_neu3d_full/loss_logs \
+    --out_html     output/4DGS/neu3d/coffee_martini/loss_plots/neu3d_coffee_martini_full.html
 python eval/summarize_warmstart_full.py \
-    --warm_dir     eval/loss_logs_warmstart_full/coffee_martini \
-    --baseline_dir eval/loss_logs_baseline_full/coffee_martini \
-    --warm_run     output/warmstart_neu3d_full \
-    --baseline_run output/baseline_neu3d_full
+    --warm_dir     output/4DGS/neu3d/coffee_martini/warmstart_neu3d_full/loss_logs \
+    --baseline_dir output/4DGS/neu3d/coffee_martini/baseline_neu3d_full/loss_logs \
+    --warm_run     output/4DGS/neu3d/coffee_martini/warmstart_neu3d_full \
+    --baseline_run output/4DGS/neu3d/coffee_martini/baseline_neu3d_full
 ```
 
 ### フェーズ 3: 画質評価
@@ -505,13 +505,13 @@ python eval/summarize_warmstart_full.py \
 2 アームには `eval/render_4d.py` を使う (同じ `render_camera_set` を 1 プロセスで回す)。
 
 ```bash
-python eval/render_4d.py --run_dir output/warmstart_neu3d_full \
+python eval/render_4d.py --run_dir output/4DGS/neu3d/coffee_martini/warmstart_neu3d_full \
     --data_dir data/neu3d/coffee_martini/converted_4d \
     --out_dir  eval/renders/warmstart_full --split test
 python eval/evaluate.py --dataset neu3d \
     --render_dir eval/renders/warmstart_full/renders \
     --gt_dir     eval/renders/warmstart_full/gt \
-    --output_csv eval/results/warmstart_full/neu3d_coffee_martini.csv --device cuda
+    --output_csv output/4DGS/neu3d/coffee_martini/warmstart_neu3d_full/results/metrics.csv --device cuda
 ```
 
 **GT をフラットに置いてはいけない**。300 フレームすべてが cam00/cam09/cam19 と
@@ -541,7 +541,7 @@ frame 125-135 付近で OOM する見込みだったため、100 フレームで
 | Gaussian 数（frame 099）| 1,532,128 | 82,697（平均）|
 | 1 フレーム平均時間 | 76.0 秒 | 39.9 秒 |
 
-プロット: `eval/loss_plots/neu3d_coffee_martini_full.html`
+プロット: `output/4DGS/neu3d/coffee_martini/loss_plots/neu3d_coffee_martini_full.html`
 
 ### フェーズ 3: 画質（test split = cam00 / cam09 / cam19、300 枚）
 
@@ -644,11 +644,11 @@ iter 3000→3100、6000→6100 で損失が跳ねるので reset の発火は確
 | 4,000 iter | 102.4 秒 | 85.3 秒 |
 | 7,000 iter | 183.0 秒 | 155.4 秒 |
 
-プロット: `eval/loss_plots/neu3d_4000_trial.html`, `eval/loss_plots/neu3d_7000_trial.html`
+プロット: `output/4DGS/neu3d/coffee_martini/loss_plots/neu3d_4000_trial.html`, `output/4DGS/neu3d/coffee_martini/loss_plots/neu3d_7000_trial.html`
 
 ## フレーム間ピクセル差分（cam00, 全300フレーム）
 
-`eval/results/pixel_diff_cam00.csv` / `eval/loss_plots/pixel_diff_cam00.html`
+`output/4DGS/neu3d/coffee_martini/results/pixel_diff_cam00.csv` / `output/4DGS/neu3d/coffee_martini/loss_plots/pixel_diff_cam00.html`
 
 平均 1.5903 / 中央値 1.5701 / 最大 2.0087 (frame 10) / 最小 1.4701 (frame 116) /
 標準偏差 0.0887（平均の 5.6%）。動き量はフレーム間でほとんど変わらない。
@@ -726,7 +726,7 @@ ADC のカオス的挙動による暴走が起こりえない。
 ## Gaussian 数固定の 300 フレーム展開 → frame 53 で劣化を検出
 
 構成: frame 1 のみ通常 ADC (`neu3d/warmstart_7000_full.yaml`) で学習して
-`output/fixed_gaussian_frame1/` に置き、frames 2 以降は
+`output/4DGS/neu3d/coffee_martini/fixed_gaussian_frame1/` に置き、frames 2 以降は
 `neu3d/fixed_gaussian_noreset_full.yaml` (densify/prune・opacity reset とも無効) で
 そこから持ち越す。`scripts/train_4d.py` は実行ディレクトリの `config.yaml` と一致しない
 config での再開を拒否するので、frame 1 は別ディレクトリに置く必要がある。
@@ -779,4 +779,4 @@ frame 1 の Gaussian 配置が 40 フレーム程度でシーンに追随でき�
 22-31 = 24.32 / 32-41 = 22.94 / 42-51 = 21.28 / 52-53 = 20.12。
 損失で見た劣化開始（frame 40 付近）と一致する。frame 31 までは完全に平坦。
 
-全実験の一覧は `eval/results/experiment_summary.csv`。
+全実験の一覧は `output/4DGS/neu3d/coffee_martini/results/experiment_summary.csv`。

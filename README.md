@@ -73,19 +73,19 @@ JSONを想定します。RGBAは設定した黒または白背景へ合成して
 python scripts/train.py \
   --data data \
   --config configs/default.yaml \
-  --output output/blender/run001_example
+  --output output/3DGS/blender/run001_example
 
 python scripts/render.py \
   --data data \
-  --checkpoint output/blender/run001_example/checkpoints/latest.pt \
+  --checkpoint output/3DGS/blender/run001_example/checkpoints/latest.pt \
   --split test \
-  --output output/blender/run001_example/renders/test
+  --output output/3DGS/blender/run001_example/renders/test
 
 python scripts/evaluate.py \
   --data data \
-  --checkpoint output/blender/run001_example/checkpoints/latest.pt \
+  --checkpoint output/3DGS/blender/run001_example/checkpoints/latest.pt \
   --split test \
-  --output output/blender/run001_example/metrics/evaluation.json
+  --output output/3DGS/blender/run001_example/metrics/evaluation.json
 ```
 
 学習再開時はチェックポイントの全乱数状態とカメラ選択状態を復元します。
@@ -94,8 +94,8 @@ python scripts/evaluate.py \
 python scripts/train.py \
   --data data \
   --config configs/default.yaml \
-  --output output/blender/run001_example \
-  --resume output/blender/run001_example/checkpoints/latest.pt
+  --output output/3DGS/blender/run001_example \
+  --resume output/3DGS/blender/run001_example/checkpoints/latest.pt
 ```
 
 ## Adaptive Density Control
@@ -181,14 +181,14 @@ sceneはskipし、中断runはcheckpointからresumeします。
 
 ```bash
 python scripts/run_paper_benchmark.py \
-  --manifest output/paper_3dgs/manifest.json \
+  --manifest output/3DGS/benchmark_report/manifest.json \
   --continue-on-oom
 
 python scripts/generate_paper_benchmark_report.py \
-  --manifest output/paper_3dgs/manifest.json
+  --manifest output/3DGS/benchmark_report/manifest.json
 
 python scripts/generate_paper_benchmark_qualitative.py \
-  --manifest output/paper_3dgs/manifest.json
+  --manifest output/3DGS/benchmark_report/manifest.json
 ```
 
 `output/`にはcheckpoint、metrics、VRAM telemetry、CSV/JSON、Markdown report、

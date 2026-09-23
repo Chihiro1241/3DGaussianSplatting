@@ -1,17 +1,17 @@
 """
-eval/loss_logs/<variant>/<scene>/frame_*.csv を読み、損失曲線の比較 HTML を生成する。
+<...>/loss_logs/<variant>/frame_*.csv を読み、損失曲線の比較 HTML を生成する。
 
 使い方:
     # warm-start ありのみ
     python eval/plot_loss.py \
-        --log_dir  eval/loss_logs/_default/lego \
-        --out_html eval/loss_plots/lego.html
+        --log_dir  output/4DGS/dnerf/lego/experiments/warmstart/loss_logs \
+        --out_html output/4DGS/dnerf/lego/loss_plots/lego.html
 
     # warm-start あり vs なし
     python eval/plot_loss.py \
-        --log_dir      eval/loss_logs/_default/lego \
-        --baseline_dir eval/loss_logs/baseline/lego \
-        --out_html     eval/loss_plots/lego_compare.html
+        --log_dir      output/4DGS/dnerf/lego/experiments/warmstart/loss_logs \
+        --baseline_dir output/4DGS/dnerf/lego/experiments/baseline/loss_logs \
+        --out_html     output/4DGS/dnerf/lego/loss_plots/lego_compare.html
 
 出力は単一の自己完結 HTML。Chart.js だけ CDN から読む。
 """

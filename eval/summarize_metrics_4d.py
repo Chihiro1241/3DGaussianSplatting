@@ -4,8 +4,8 @@ eval/evaluate.py が書いた per-image CSV を、カメラ別・全体で集計
 
 使い方:
     python eval/summarize_metrics_4d.py \
-        --warm     eval/results/warmstart_full/neu3d_coffee_martini.csv \
-        --baseline eval/results/baseline_full/neu3d_coffee_martini.csv
+        --warm     output/4DGS/neu3d/coffee_martini/warmstart_neu3d_full/results/metrics.csv \
+        --baseline output/4DGS/neu3d/coffee_martini/baseline_neu3d_full/results/metrics.csv
 
 evaluate.py の CSV は 1 行 1 画像 (filename,psnr,d_ssim,lpips) で、最終行に
 全体平均が入る。ここでは filename (cam00.png など) でグループ分けして
