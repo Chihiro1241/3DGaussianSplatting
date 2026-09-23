@@ -214,12 +214,9 @@ if want eval && [ "$RENDER_FAILED" = "0" ]; then
         --dataset neu3d \
         --render_dir "$RENDER_DIR/renders" --gt_dir "$RENDER_DIR/gt" \
         --output_csv "$RESULTS_DIR/metrics.csv" \
+        --json_out "$RESULTS_DIR/summary.json" \
         --device cuda --rgba_background black \
         || note_failure "eval"
-    run_step python eval/summarize_camera_metrics.py \
-        --csv "$RESULTS_DIR/metrics.csv" \
-        --json_out "$RESULTS_DIR/summary.json" \
-        || note_failure "eval/camera"
     run_step python eval/evaluate_per_frame.py \
         --render_dir "$RENDER_DIR/renders" --gt_dir "$RENDER_DIR/gt" \
         --output_csv "$RESULTS_DIR/per_frame.csv" \

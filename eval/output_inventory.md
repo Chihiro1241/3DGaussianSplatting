@@ -651,7 +651,7 @@ output/4DGS/hypernerf/results/<scene>.csv
 
 - `runs/4DGS_baseline.sh` / `runs/4DGS_warmstart.sh`: `VIZ_DIR="${SCENE_DIR}/gaussian_viz/${TAG}"`
 - `eval/loss_logger.py`: `--out_dir` の既定値 → `output/loss_logs/_default`
-- `eval/plot_loss.py` / `summarize_warmstart.py` / `summarize_warmstart_full.py` /
+- `eval/plot_loss.py` / `summarize_warmstart.py` /
   `gaussian_viz_report.py` / `visualize_gaussians.py` の docstring
 - `eval/README.md`: 併せて、再編済みで実在しなくなっていた `eval/loss_logs_<variant>/` 形式の
   記述 8 箇所も `output/loss_logs/<variant>/` に直した
@@ -837,3 +837,34 @@ output/4DGS/dnerf/lego/
 
 `eval/summarize.py` は変更不要だった（ディレクトリ階層から指標セットを決める方式のため、
 `<dataset>/<scene>/results/metrics.csv` をそのまま解決できる）。
+
+
+## eval/ のスクリプト統合（2026-09-23）
+
+25 本 6,200 行あったうち、同じことをする道具が分かれていた 3 組を 1 本にまとめ、
+22 本にした。いずれも旧版と同じ数値が出ることを実データで確認してから削除している。
+
+| 廃止 | 統合先 | 検証 |
+|---|---|---|
+| `summarize_warmstart_full.py` | `summarize_warmstart.py` | 10 フレーム試行・100 フレーム本番の両方で、旧 2 本が出す数値がすべて再現されることを確認 |
+| `summarize_metrics_4d.py` | `compare_runs.py` | per_frame.csv 同士で旧 compare_runs と数値が完全一致、metrics.csv 同士で旧 summarize_metrics_4d と一致（A/B の向きぶん符号が反転） |
+| `summarize_camera_metrics.py` | `evaluate.py --json_out` | smoke ランを再評価し、既存の `summary.json` と JSON が完全一致 |
+
+統合で増えた機能:
+
+- `summarize_warmstart.py` に `--block` を追加。既定の `auto` は 20 フレーム以下なら
+  フレーム別、それより長いランでは 50 フレームごとのブロック平均にする
+  （旧 2 本の使い分けを 1 本に畳んだ）
+- `compare_runs.py` が CSV の列から形式を自動判別する。`frame,camera,...`
+  （evaluate_per_frame.py の出力）ならフレームブロック別まで、`filename,...`
+  （evaluate.py の出力）ならカメラ別までを出す
+- `evaluate.py` のカメラ別集計は `metric_names` に従うので、旧版で 3 種固定だった
+  指標が dnerf の SSIM などにも効く。ファイル名がカメラ別に割れないデータセット
+  （D-NeRF の `r_000.png` など）では自動でスキップする
+
+`runs/4DGS_{baseline,warmstart}.sh` の評価工程は 2 コマンドから 1 コマンドになった。
+
+`eval/README.md` の冒頭に**ツール索引**を追加した。従来は 5 本しか表に無く、
+22 本中 13 本は README に名前すら出ていなかった。工程順（データ変換 / 学習・描画 /
+指標算出 / 集計・レポート / 可視化・動画）に並べ、各ツールの入出力と、
+`runs/*.sh` が自動実行するかどうかを示している。

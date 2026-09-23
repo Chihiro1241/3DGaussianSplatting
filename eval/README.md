@@ -3,13 +3,71 @@
 `scripts/render.py` が書き出した PNG と GT PNG を突き合わせて PSNR / SSIM /
 MS-SSIM / D-SSIM / LPIPS を計算し、データセット単位で集計する。
 
-| ファイル | 役割 |
+## ツール索引
+
+工程順。**自動**列が ● のものは `runs/3DGS.sh` / `runs/4DGS_baseline.sh` /
+`runs/4DGS_warmstart.sh` が実行するので、個別に叩く必要は普通ない。
+○ は手で使う道具。
+
+### 1. データ変換（学習の前処理）
+
+| ツール | 用途 | 主な入力 → 出力 | 自動 |
+|---|---|---|---|
+| `convert_neu3d.py` | Neu3D を COLMAP 形式へ | `--colmap_dir --frames_dir` → `--out_dir` | ● |
+| `undistort_neu3d.py` | Neu3D の魚眼歪み補正 | `--frames_dir --colmap_dir` → `--out_dir` | ● |
+| `convert_hypernerf.py` | HyperNeRF を COLMAP 形式へ | `--scene_dir` → `--out_dir` | ○ |
+
+### 2. 学習・描画
+
+| ツール | 用途 | 主な入力 → 出力 | 自動 |
+|---|---|---|---|
+| `warmstart_trainer.py` | 4D の warm-start 学習ドライバ | `--source_path --config` → `--output_dir` | ● |
+| `render_4d.py` | 4D ランを 1 プロセスで全フレーム描画 | `--run_dir --data_dir` → `--out_dir` (`renders/` `gt/`) | ● |
+| `benchmark_fps.py` | 描画 FPS の実測 | `--run_dir --data_dir` → 標準出力 | ○ |
+| `rebuild_manifest_4d.py` | 壊れた `frames_4d.json` を実体から再生成 | `--run_dir` → 同ファイル | ○ |
+
+### 3. 指標の算出
+
+| ツール | 用途 | 主な入力 → 出力 | 自動 |
+|---|---|---|---|
+| `evaluate.py` | 画像対から PSNR/SSIM/D-SSIM/MS-SSIM/LPIPS | `--render_dir --gt_dir` → `--output_csv` (`metrics.csv`) と `--json_out` (`summary.json`、カメラ別) | ● |
+| `evaluate_per_frame.py` | 同上をフレーム × カメラで展開 | 同上 → `--output_csv` (`per_frame.csv`) | ● |
+| `gaussian_count_trend.py` | ガウシアン数・時間・VRAM の推移 | `--run_dir` → `--output_csv` (`gaussian_counts.csv`) | ● |
+| `loss_logger.py` | `train_log.jsonl` を損失 CSV へ変換 | `--run_dir` → `--out_dir` (`loss_logs/`) | ○ |
+
+### 4. 集計・比較・レポート
+
+| ツール | 用途 | 主な入力 → 出力 | 自動 |
+|---|---|---|---|
+| `summarize.py` | 全データセットを論文値と並べる | `--results_dir output` → 標準出力 | ○ |
+| `compare_runs.py` | 2 ランを突き合わせる（カメラ別 / フレームブロック別） | `--a --b` (`per_frame.csv` でも `metrics.csv` でも可) → 標準出力 | ○ |
+| `summarize_warmstart.py` | warm-start と baseline の収束比較 | `--warm_dir --baseline_dir` (+ `--warm_run --baseline_run`) → 標準出力 | ○ |
+| `make_eval_report.py` | ラン 1 本の `eval.md` を生成 | `--run_dir` (+ `--compare`) → `<run_dir>/eval.md` | ● |
+
+### 5. 可視化・動画
+
+| ツール | 用途 | 主な入力 → 出力 | 自動 |
+|---|---|---|---|
+| `visualize_gaussians.py` | チェックポイントのガウシアン分布を投影 | `--ckpt_dir` → `--out_dir` (PNG + HTML) | ● |
+| `gaussian_viz_report.py` | 上の出力を 1 枚の HTML にまとめる | `--viz_dir` → `--out` | ● |
+| `plot_loss.py` | 損失曲線の比較 HTML | `--log_dir --baseline_dir` → `--out_html` | ○ |
+| `extract_snapshots.py` | 学習過程のスナップショット (npz) を抽出 | `--run` → npz | ○ |
+| `snapshot_viewer.py` | フレーム × iteration の 2 軸ビューワー (streamlit) | `--run` → ブラウザ | ○ |
+| `make_videos_4d.py` | 描画結果を mp4 に | `--render_root` → `--out_dir` | ● |
+| `make_compare_runs_video.py` | 2 ランを並べた比較動画 | `--a_root --b_root --gt_root` → `--out_dir` | ○ |
+
+`archive/` には退役したシェルスクリプトが置いてある（`run_all.sh` ほか）。
+実行経路は `runs/` に移したので、過去の実行記録としてのみ残している。
+
+### 統合の履歴
+
+同じことをする道具が分かれていたので、以下を 1 本にまとめた。
+
+| 廃止 | 統合先 |
 |---|---|
-| `evaluate.py` | 1 シーン分の画像対を評価し、per-image + 平均を CSV へ出力 |
-| `summarize.py` | `<dataset>_<scene>.csv` を集めてデータセット別の表を表示 |
-| `archive/run_all.sh` | 全シーンを回して `summarize.py` まで実行（退避済み） |
-| `extract_snapshots.py` | チェックポイントから学習過程スナップショット (npz) を抽出 |
-| `snapshot_viewer.py` | フレーム × iteration の2軸で学習過程を再生するビューワー |
+| `summarize_warmstart_full.py` | `summarize_warmstart.py`（`--block` で試行用/本番用を切り替え） |
+| `summarize_metrics_4d.py` | `compare_runs.py`（CSV の列から形式を自動判別） |
+| `summarize_camera_metrics.py` | `evaluate.py --json_out` |
 
 ## リポジトリ本体の評価との使い分け
 
@@ -492,7 +550,7 @@ python eval/plot_loss.py \
     --log_dir      output/4DGS/neu3d/coffee_martini/warmstart_neu3d_full/loss_logs \
     --baseline_dir output/4DGS/neu3d/coffee_martini/baseline_neu3d_full/loss_logs \
     --out_html     output/4DGS/neu3d/coffee_martini/loss_plots/neu3d_coffee_martini_full.html
-python eval/summarize_warmstart_full.py \
+python eval/summarize_warmstart.py \
     --warm_dir     output/4DGS/neu3d/coffee_martini/warmstart_neu3d_full/loss_logs \
     --baseline_dir output/4DGS/neu3d/coffee_martini/baseline_neu3d_full/loss_logs \
     --warm_run     output/4DGS/neu3d/coffee_martini/warmstart_neu3d_full \
