@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 from matplotlib.ticker import FuncFormatter
 
-# データセット別レイアウト: <ROOT_3DGS>/<dataset>/runs/<scene>/
+# データセット別レイアウト: <ROOT_3DGS>/<dataset>/<scene>/  (1 シーン 1 ラン)
 ROOT_3DGS = Path("output/3DGS")
 OUT = Path("output/3DGS/benchmark_report/report/loss_plot.pdf")
 
@@ -27,27 +27,27 @@ COLOURS = {
 }
 
 SCENES = [
-    ("mipnerf360/runs/bicycle", "Mip-NeRF360"),
-    ("mipnerf360/runs/bonsai", "Mip-NeRF360"),
-    ("mipnerf360/runs/counter", "Mip-NeRF360"),
-    ("mipnerf360/runs/flowers", "Mip-NeRF360"),
-    ("mipnerf360/runs/garden", "Mip-NeRF360"),
-    ("mipnerf360/runs/kitchen", "Mip-NeRF360"),
-    ("mipnerf360/runs/room", "Mip-NeRF360"),
-    ("mipnerf360/runs/stump", "Mip-NeRF360"),
-    ("mipnerf360/runs/treehill", "Mip-NeRF360"),
-    ("tandt/runs/train", "Tanks&Temples"),
-    ("tandt/runs/truck", "Tanks&Temples"),
-    ("deepblending/runs/drjohnson", "Deep Blending"),
-    ("deepblending/runs/playroom", "Deep Blending"),
-    ("nerf_synthetic/runs/chair", "Synthetic NeRF"),
-    ("nerf_synthetic/runs/drums", "Synthetic NeRF"),
-    ("nerf_synthetic/runs/ficus", "Synthetic NeRF"),
-    ("nerf_synthetic/runs/hotdog", "Synthetic NeRF"),
-    ("nerf_synthetic/runs/lego", "Synthetic NeRF"),
-    ("nerf_synthetic/runs/materials", "Synthetic NeRF"),
-    ("nerf_synthetic/runs/mic", "Synthetic NeRF"),
-    ("nerf_synthetic/runs/ship", "Synthetic NeRF"),
+    ("mipnerf360/bicycle", "Mip-NeRF360"),
+    ("mipnerf360/bonsai", "Mip-NeRF360"),
+    ("mipnerf360/counter", "Mip-NeRF360"),
+    ("mipnerf360/flowers", "Mip-NeRF360"),
+    ("mipnerf360/garden", "Mip-NeRF360"),
+    ("mipnerf360/kitchen", "Mip-NeRF360"),
+    ("mipnerf360/room", "Mip-NeRF360"),
+    ("mipnerf360/stump", "Mip-NeRF360"),
+    ("mipnerf360/treehill", "Mip-NeRF360"),
+    ("tandt/train", "Tanks&Temples"),
+    ("tandt/truck", "Tanks&Temples"),
+    ("deepblending/drjohnson", "Deep Blending"),
+    ("deepblending/playroom", "Deep Blending"),
+    ("nerf_synthetic/chair", "Synthetic NeRF"),
+    ("nerf_synthetic/drums", "Synthetic NeRF"),
+    ("nerf_synthetic/ficus", "Synthetic NeRF"),
+    ("nerf_synthetic/hotdog", "Synthetic NeRF"),
+    ("nerf_synthetic/lego", "Synthetic NeRF"),
+    ("nerf_synthetic/materials", "Synthetic NeRF"),
+    ("nerf_synthetic/mic", "Synthetic NeRF"),
+    ("nerf_synthetic/ship", "Synthetic NeRF"),
 ]
 
 PANELS = [

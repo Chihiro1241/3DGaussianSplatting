@@ -12,13 +12,14 @@
 # tmux / screen は入っていないので、長時間ジョブは setsid nohup で detach する。
 #
 # 工程: 学習 -> マニフェスト再構築 -> test view 描画 -> 評価 -> 動画 ->
-#       Gaussian 可視化。GPU は 1 枚なので学習と描画は必ず直列にする。
+#       Gaussian 可視化 -> eval.md 生成。GPU は 1 枚なので学習と描画は必ず直列にする。
 #
 # 環境変数:
 #   CONFIG="configs/neu3d/warmstart_7000_full.yaml"  学習設定
-#   TAG="<scene>_<config 名>"                出力ディレクトリと CSV の名前
-#   RUN_DIR="output/4DGS/neu3d/<TAG>"        学習出力
-#   STAGES="train render eval video viz"     実行する工程 (既定は全部)
+#   TAG="<scene>_<config 名>"                出力ディレクトリの名前
+#   RUN_DIR="output/4DGS/neu3d/<SCENE>/<TAG>"  ラン一式 (学習/描画/動画/可視化/評価)
+#   STAGES="train render eval video viz report"  実行する工程 (既定は全部)
+#   COMPARE="<run_dir> ..."                  eval.md の比較表に並べる別ラン
 #   VIZ_FRAMES="1 50 100 ..."                Gaussian 可視化するフレーム
 #   RENDER_BACKEND=cuda|reference            既定 cuda
 #   DRY_RUN=1                                コマンドを表示するだけで実行しない
@@ -30,7 +31,7 @@
 #   * ガウシアン数はフレームを追うごとに増える。7,000 iter 設定で +20k/frame
 #     程度が続いた実測例があり、フレーム時間・チェックポイント容量・VRAM が
 #     すべてそれに比例して増える。本スクリプトは自動中断を一切しないので、
-#     長いランでは eval/results/<TAG>_gaussian_counts.csv を後から必ず確認する。
+#     長いランでは <RUN_DIR>/results/gaussian_counts.csv を後から必ず確認する。
 #   * ADC の軌跡は CUDA atomicAdd の非決定性に対してカオス的で、同一設定でも
 #     実行ごとに別の軌跡を描く。ガウシアン数の推移は再現性のある量ではない。
 #
@@ -66,12 +67,15 @@ END_FRAME="${2:-300}"
 DATA_DIR="data/neu3d/${SCENE}/converted_4d"
 CONFIG="${CONFIG:-configs/neu3d/warmstart_7000_full.yaml}"
 TAG="${TAG:-${SCENE}_$(basename "$CONFIG" .yaml)}"
-RUN_DIR="${RUN_DIR:-output/4DGS/neu3d/${TAG}}"
-RENDER_DIR="output/4DGS/neu3d/renders/${TAG}"
-VIDEO_DIR="output/4DGS/neu3d/videos/${TAG}"
-VIZ_DIR="eval/gaussian_viz/${TAG}"
-RESULTS_DIR="eval/results"
-STAGES="${STAGES:-train render eval video viz}"
+SCENE_DIR="output/4DGS/neu3d/${SCENE}"
+# 1 ラン 1 ディレクトリ。学習出力の隣に描画・動画・可視化・評価をぶら下げる。
+RUN_DIR="${RUN_DIR:-${SCENE_DIR}/${TAG}}"
+RENDER_DIR="${RUN_DIR}/renders"
+VIDEO_DIR="${RUN_DIR}/videos"
+VIZ_DIR="${RUN_DIR}/gaussian_viz"
+# CSV もラン直下。ディレクトリがランを表すのでファイル名に TAG は入れない。
+RESULTS_DIR="${RUN_DIR}/results"
+STAGES="${STAGES:-train render eval video viz report}"
 RENDER_BACKEND="${RENDER_BACKEND:-cuda}"
 DRY_RUN="${DRY_RUN:-0}"
 
@@ -209,23 +213,20 @@ if want eval && [ "$RENDER_FAILED" = "0" ]; then
     run_step python eval/evaluate.py \
         --dataset neu3d \
         --render_dir "$RENDER_DIR/renders" --gt_dir "$RENDER_DIR/gt" \
-        --output_csv "$RESULTS_DIR/${TAG}.csv" \
+        --output_csv "$RESULTS_DIR/metrics.csv" \
+        --json_out "$RESULTS_DIR/summary.json" \
         --device cuda --rgba_background black \
         || note_failure "eval"
-    run_step python eval/summarize_camera_metrics.py \
-        --csv "$RESULTS_DIR/${TAG}.csv" \
-        --json_out "$RESULTS_DIR/${TAG}_summary.json" \
-        || note_failure "eval/camera"
     run_step python eval/evaluate_per_frame.py \
         --render_dir "$RENDER_DIR/renders" --gt_dir "$RENDER_DIR/gt" \
-        --output_csv "$RESULTS_DIR/${TAG}_per_frame.csv" \
+        --output_csv "$RESULTS_DIR/per_frame.csv" \
         --dataset neu3d --device cuda --rgba_background black --block 10 \
         || note_failure "eval/per_frame"
     # warm-start はガウシアン数が単調に増えうる。増加の度合いはこの CSV でしか
     # 追えないので必ず残す (本スクリプトは増加を理由に中断はしない)。
     run_step python eval/gaussian_count_trend.py \
         --run_dir "$RUN_DIR" --block 10 \
-        --output_csv "$RESULTS_DIR/${TAG}_gaussian_counts.csv" \
+        --output_csv "$RESULTS_DIR/gaussian_counts.csv" \
         || note_failure "eval/gaussian_counts"
 fi
 
@@ -269,6 +270,26 @@ if want viz; then
             --frames $viz_done --title "Gaussian 可視化 — ${TAG}" \
             || note_failure "viz/report"
     fi
+fi
+
+# ------------------------------------------------- 6. eval.md 生成
+if want report; then
+    echo ""
+    echo "############################################################"
+    echo "# eval.md 生成  $(date '+%m-%d %H:%M')"
+    echo "############################################################"
+    # 人が書く節 (定性的評価 / AIによる初見) は既存 eval.md から引き継がれる。
+    # 比較表に別ランを並べるときは COMPARE="<run_dir> <run_dir>" を渡す。
+    report_command=(
+        python eval/make_eval_report.py
+        --run_dir "$RUN_DIR"
+        --render_backend "$RENDER_BACKEND"
+        --command "CONFIG=$CONFIG runs/4DGS_warmstart.sh $SCENE $END_FRAME"
+    )
+    for other in ${COMPARE:-}; do
+        report_command+=(--compare "$other")
+    done
+    run_step "${report_command[@]}" || note_failure "report"
 fi
 
 echo ""

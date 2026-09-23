@@ -3,10 +3,10 @@ eval/make_compare_runs_video.py
 2 つのラン (A/B) の描画結果を GT と 3 面並べた比較動画にする。
 
     python eval/make_compare_runs_video.py \
-        --gt_root   output/4DGS/neu3d/renders/full_baseline_2000 \
-        --a_root    output/4DGS/neu3d/renders/full_baseline_2000 --a_label "baseline 2000" \
-        --b_root    output/4DGS/neu3d/renders/full_warmstart_2000 --b_label "warm-start 2000" \
-        --out_dir   output/4DGS/neu3d/videos/compare_baseline_vs_warmstart \
+        --gt_root   output/4DGS/neu3d/coffee_martini/baseline_neu3d_full/renders \
+        --a_root    output/4DGS/neu3d/coffee_martini/baseline_neu3d_full/renders --a_label "baseline 2000" \
+        --b_root    output/4DGS/neu3d/coffee_martini/warmstart_neu3d_full/renders --b_label "warm-start 2000" \
+        --out_dir   output/4DGS/neu3d/coffee_martini/videos/compare_baseline_vs_warmstart \
         --end_frame 100 --fps 30 10
 
 eval/make_videos_4d.py は 1 ランの GT×Pred しか作れないので、ラン同士を

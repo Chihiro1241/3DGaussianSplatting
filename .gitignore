@@ -4,7 +4,14 @@ __pycache__/
 /outputs/
 /data/*
 !/data/*.py
-/output/
+# output/ は学習成果物 (ckpt/PNG/mp4) で数百 GB あるので原則無視する。ただし
+# 評価結果 (各ランの results/ 配下の CSV/JSON) は小容量かつ再現に数十時間かかるので
+# 追跡する。git は「除外したディレクトリ」配下を再包含できないため、ディレクトリ自体は
+# 除外せず (!/output/**/) 中身だけを除外する書き方にしている。
+/output/**
+!/output/**/
+!/output/**/results/**
+!/output/**/loss_logs/**
 /experiments/
 .venv/
 *.egg-info/
@@ -16,6 +23,3 @@ dist/
 .coverage
 htmlcov/
 /logs/
-/eval/gaussian_viz/
-/eval/loss_plots/
-/eval/logs/

@@ -3,33 +3,33 @@ import csv
 import json
 from pathlib import Path
 
-# データセット別レイアウト: <ROOT_3DGS>/<dataset>/runs/<scene>/
+# データセット別レイアウト: <ROOT_3DGS>/<dataset>/<scene>/  (1 シーン 1 ラン)
 ROOT_3DGS = Path("output/3DGS")
 OUT = Path("output/3DGS/benchmark_report/report/scene_memory.csv")
 
 # (directory, dataset, scene) in report order.
 SCENES = [
-    ("mipnerf360/runs/bicycle", "Mip-NeRF360", "bicycle"),
-    ("mipnerf360/runs/bonsai", "Mip-NeRF360", "bonsai"),
-    ("mipnerf360/runs/counter", "Mip-NeRF360", "counter"),
-    ("mipnerf360/runs/flowers", "Mip-NeRF360", "flowers"),
-    ("mipnerf360/runs/garden", "Mip-NeRF360", "garden"),
-    ("mipnerf360/runs/kitchen", "Mip-NeRF360", "kitchen"),
-    ("mipnerf360/runs/room", "Mip-NeRF360", "room"),
-    ("mipnerf360/runs/stump", "Mip-NeRF360", "stump"),
-    ("mipnerf360/runs/treehill", "Mip-NeRF360", "treehill"),
-    ("tandt/runs/train", "Tanks&Temples", "train"),
-    ("tandt/runs/truck", "Tanks&Temples", "truck"),
-    ("deepblending/runs/drjohnson", "Deep Blending", "drjohnson"),
-    ("deepblending/runs/playroom", "Deep Blending", "playroom"),
-    ("nerf_synthetic/runs/chair", "Synthetic NeRF", "chair"),
-    ("nerf_synthetic/runs/drums", "Synthetic NeRF", "drums"),
-    ("nerf_synthetic/runs/ficus", "Synthetic NeRF", "ficus"),
-    ("nerf_synthetic/runs/hotdog", "Synthetic NeRF", "hotdog"),
-    ("nerf_synthetic/runs/lego", "Synthetic NeRF", "lego"),
-    ("nerf_synthetic/runs/materials", "Synthetic NeRF", "materials"),
-    ("nerf_synthetic/runs/mic", "Synthetic NeRF", "mic"),
-    ("nerf_synthetic/runs/ship", "Synthetic NeRF", "ship"),
+    ("mipnerf360/bicycle", "Mip-NeRF360", "bicycle"),
+    ("mipnerf360/bonsai", "Mip-NeRF360", "bonsai"),
+    ("mipnerf360/counter", "Mip-NeRF360", "counter"),
+    ("mipnerf360/flowers", "Mip-NeRF360", "flowers"),
+    ("mipnerf360/garden", "Mip-NeRF360", "garden"),
+    ("mipnerf360/kitchen", "Mip-NeRF360", "kitchen"),
+    ("mipnerf360/room", "Mip-NeRF360", "room"),
+    ("mipnerf360/stump", "Mip-NeRF360", "stump"),
+    ("mipnerf360/treehill", "Mip-NeRF360", "treehill"),
+    ("tandt/train", "Tanks&Temples", "train"),
+    ("tandt/truck", "Tanks&Temples", "truck"),
+    ("deepblending/drjohnson", "Deep Blending", "drjohnson"),
+    ("deepblending/playroom", "Deep Blending", "playroom"),
+    ("nerf_synthetic/chair", "Synthetic NeRF", "chair"),
+    ("nerf_synthetic/drums", "Synthetic NeRF", "drums"),
+    ("nerf_synthetic/ficus", "Synthetic NeRF", "ficus"),
+    ("nerf_synthetic/hotdog", "Synthetic NeRF", "hotdog"),
+    ("nerf_synthetic/lego", "Synthetic NeRF", "lego"),
+    ("nerf_synthetic/materials", "Synthetic NeRF", "materials"),
+    ("nerf_synthetic/mic", "Synthetic NeRF", "mic"),
+    ("nerf_synthetic/ship", "Synthetic NeRF", "ship"),
 ]
 
 

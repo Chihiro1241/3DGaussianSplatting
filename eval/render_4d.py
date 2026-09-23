@@ -5,9 +5,9 @@ eval/evaluate.py がそのまま食える render/GT のディレクトリ対を�
 
 使い方:
     python eval/render_4d.py \
-        --run_dir  output/4DGS/neu3d/warmstart_neu3d_full \
+        --run_dir  output/4DGS/neu3d/coffee_martini/warmstart_neu3d_full \
         --data_dir data/neu3d/coffee_martini/converted_4d \
-        --out_dir  output/4DGS/neu3d/renders/warmstart_full \
+        --out_dir  output/4DGS/neu3d/coffee_martini/warmstart_neu3d_full/renders \
         --split    test
 
 ----------------------------------------------------------------------------

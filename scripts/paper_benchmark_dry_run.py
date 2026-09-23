@@ -53,7 +53,7 @@ DATASET_SLUG = {
     "Deep Blending": "deepblending", "Synthetic NeRF": "synthetic",
 }
 
-# run の保存先はデータセット別: <root_3dgs>/<dataset>/runs/<scene>/
+# run の保存先はデータセット別: <root_3dgs>/<dataset>/<scene>/
 DATASET_DIR = {
     "Mip-NeRF360": "mipnerf360", "Tanks&Temples": "tandt",
     "Deep Blending": "deepblending", "Synthetic NeRF": "nerf_synthetic",
@@ -245,7 +245,7 @@ def main() -> int:
     for dataset, scenes in DATASET_SCENES.items():
         for scene in scenes:
             candidates = discovered[scene]
-            output = output_root.parent / DATASET_DIR[dataset] / "runs" / scene
+            output = output_root.parent / DATASET_DIR[dataset] / scene
             paper7, paper30 = PAPER_PSNR[scene]
             if len(candidates) != 1:
                 status = "MISSING" if not candidates else "AMBIGUOUS"

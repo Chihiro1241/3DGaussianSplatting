@@ -4,8 +4,8 @@ eval/render_4d.py が書いた連番 PNG を mp4 にまとめる。
 
 使い方:
     python eval/make_videos_4d.py \
-        --render_root output/4DGS/neu3d/renders/baseline_30k \
-        --out_dir     output/4DGS/neu3d/videos/baseline_30k
+        --render_root output/4DGS/neu3d/coffee_martini/baseline_30k/renders \
+        --out_dir     output/4DGS/neu3d/coffee_martini/baseline_30k/videos
 
 ----------------------------------------------------------------------------
 なぜ glob ではなく concat リストを使うのか

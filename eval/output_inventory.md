@@ -360,20 +360,20 @@ output/renders/fixed_gaussian/           206 MB
 
 ## 実験との対応
 
-`eval/results/experiment_summary.csv`（10 実験）を軸に対応付けた。
+`output/4DGS/neu3d/coffee_martini/results/experiment_summary.csv`（10 実験）を軸に対応付けた。
 
-| 実験（summary.csv の行） | output ディレクトリ | logs | eval/results |
+| 実験（summary.csv の行） | output ディレクトリ | logs | 評価結果 |
 |---|---|---|---|
-| 2,000iter warm-start (100f) | `warmstart_neu3d_full`（102f 学習） | `warmstart_full.log` | `warmstart_full/neu3d_coffee_martini.csv`（302行） |
-| 2,000iter baseline (100f) | `baseline_neu3d_full` | `baseline_full.log` | `baseline_full/neu3d_coffee_martini.csv`（302行） |
+| 2,000iter warm-start (100f) | `warmstart_neu3d_full`（102f 学習） | `warmstart_full.log` | `4DGS/neu3d/coffee_martini/full_warmstart_2000.csv`（302行）<br>旧 `warmstart_full/neu3d_coffee_martini.csv` は同内容のため削除 |
+| 2,000iter baseline (100f) | `baseline_neu3d_full` | `baseline_full.log` | `4DGS/neu3d/coffee_martini/full_baseline_2000.csv`（302行）<br>旧 `baseline_full/neu3d_coffee_martini.csv` は同内容のため削除 |
 | 4,000iter warm-start (試行, 10f) | `warmstart_neu3d_4000_trial` | `warmstart_4000_trial.log` | （CSV なし / summary.csv のみ） |
 | 4,000iter baseline (試行, 10f) | `baseline_neu3d_4000_trial` | `baseline_4000_trial.log` | （CSV なし） |
 | 7,000iter warm-start (試行, 10f) | `warmstart_neu3d_7000_trial` | `warmstart_7000_trial.log` | （CSV なし） |
 | 7,000iter baseline (試行, 10f) | `baseline_neu3d_7000_trial` | `baseline_7000_trial.log` | （CSV なし） |
 | 7,000iter warm-start (本番, 7f) | `warmstart_neu3d_7000_full`（8f 保存） | `warmstart_7000_full.log` | （CSV なし） |
-| Gaussian固定 reset有 (試行, 9f) | `warmstart_fixed_gaussian` | `warmstart_fixed_gaussian.log` | （CSV なし / `pixel_diff_cam00.csv` 300行が関連の可能性） |
+| Gaussian固定 reset有 (試行, 9f) | `warmstart_fixed_gaussian` | `warmstart_fixed_gaussian.log` | （CSV なし / `4DGS/neu3d/coffee_martini/pixel_diff_cam00.csv` 300行が関連の可能性） |
 | Gaussian固定 reset無 (試行, 9f) | `warmstart_fixed_gaussian_noreset` | `warmstart_fixed_gaussian_noreset.log` | （CSV なし） |
-| Gaussian固定 warm-start (52f) | `warmstart_fixed_gaussian_full` **+ `fixed_gaussian_frame1`** | `fixed_gaussian_full.log`, `render_fixed_gaussian.log` | `fixed_gaussian.csv`（158行）, `output/renders/fixed_gaussian` |
+| Gaussian固定 warm-start (52f) | `warmstart_fixed_gaussian_full` **+ `fixed_gaussian_frame1`** | `fixed_gaussian_full.log`, `render_fixed_gaussian.log` | `4DGS/neu3d/coffee_martini/full_fixed_gaussian_7000.csv`（158行）<br>旧 `fixed_gaussian.csv` は同内容のため削除, `output/renders/fixed_gaussian` |
 
 ### summary.csv に載っていない output ディレクトリ
 
@@ -479,7 +479,8 @@ output/renders/fixed_gaussian/           206 MB
 - 🔴 `output/baseline_30k/` — **実行中**
 - `output/warmstart_neu3d_full`, `output/baseline_neu3d_full`, `output/warmstart_fixed_gaussian_full` — 論文の主要結果（中間 ckpt もゼロなので圧縮余地なし）
 - `output/fixed_gaussian_frame1` — `warmstart_fixed_gaussian_full` の frame_0001 実体
-- `eval/results/`, `eval/loss_logs*/`, `eval/loss_plots/`, `logs/` — いずれも小容量で再現困難
+- `output/**/results/`, `output/**/loss_logs/`, `logs/`
+  — いずれも小容量で再現困難（.gitignore の例外で追跡）
 
 ---
 
@@ -530,3 +531,340 @@ output/renders/fixed_gaussian/           206 MB
 > 注: `run_full_neu3d_100.sh` / `run_trial_*.sh` / `make_compare_runs_video.py` は
 > 本整理の実施者が作成したものではないが、旧パスを参照しており移動で壊れるため
 > 参照のみ書き換えた。ロジックには手を入れていない。
+
+---
+
+## 2026-09-23 追記: `4DGS/neu3d/` をシーン別に再編
+
+2026-09-15 時点では neu3d 配下は全ラン `coffee_martini` の単一シーンだったため
+「これ以上のデータセット分割は不可」と記録したが、その後 `cook_spinach` の
+300 フレーム 2 ラン、および `cut_roasted_beef` / `flame_salmon` / `flame_steak` /
+`sear_steak` の frame1 テストが加わり、6 シーンが混在するようになった。
+そのためシーン単位に再編した（**削除は無し。`mv` と参照パスの書き換えのみ**）。
+
+```
+output/4DGS/neu3d/<scene>/
+    runs/<TAG>/       学習出力 (旧 output/4DGS/neu3d/<TAG>)
+    renders/<TAG>/    描画     (旧 output/4DGS/neu3d/renders/<TAG>)
+    videos/<TAG>/     動画     (旧 output/4DGS/neu3d/videos/<TAG>)
+```
+
+| シーン | runs | renders | videos | 容量 |
+|---|---|---|---|---|
+| coffee_martini | 18 | 16 | 5 | 374 GB |
+| cook_spinach | 4 | 3 | 3 | 107 GB |
+| cut_roasted_beef / flame_salmon / flame_steak / sear_steak | 各 1 | 0 | 0 | 各 130〜215 MB |
+
+シーンの判定根拠（名前からの推測ではない）:
+
+- 学習ラン: `frames_4d.json` の `source` / `driver.log` / `frame_*/config.yaml` の `data/neu3d/<scene>` パス
+- 描画: `gt/frame_*/camNN.png` の md5 を `data/neu3d/<scene>/converted_4d` の画像と照合
+- 動画: 対応する描画ランの TAG。coffee_martini は test view が cam00/09/19、cook_spinach は cam00/08/16 で区別できる
+
+併せて更新したもの:
+
+- `frames_4d.json` 24 ファイルの `output` パス（自ラン分 1,766 箇所と、他ランを指す相互参照 1 件）。
+  いずれも書き込み前に JSON として再パースできることを確認済み
+- `runs/4DGS_baseline.sh` / `runs/4DGS_warmstart.sh` の `RUN_DIR` / `RENDER_DIR` / `VIDEO_DIR` を
+  `SCENE_DIR="output/4DGS/neu3d/${SCENE}"` 起点に変更。以後のランは自動でシーン別に入る
+- `eval/*.py` 13 ファイルの docstring 内の使用例パス（実在するパスであることを確認済み）
+
+TAG 名は変更していない（`gaussian_viz/<TAG>/` が TAG で対応しているため）。
+結果 `cook_spinach/runs/cook_spinach_baseline_7k` のようにシーン名が二重に出るが、
+対応を壊さないことを優先した。
+
+## 評価結果の output/ への統合（2026-09-23）
+
+`eval/results/` を廃止し、CSV / JSON を各ランと同じ階層の `results/` に移した。
+`runs/` `renders/` `videos/` の兄弟になるので、ランと評価結果が 1 か所に揃う。
+
+```
+output/4DGS/neu3d/cook_spinach/
+├── runs/     cook_spinach_baseline_7k/
+├── renders/  cook_spinach_baseline_7k/
+├── videos/   cook_spinach_baseline_7k/
+└── results/  baseline_7k.csv, baseline_7k_per_frame.csv,
+              baseline_7k_gaussian_counts.csv, baseline_7k_summary.json
+
+output/3DGS/nerf_synthetic/results/lego.csv
+output/4DGS/dnerf/results/<scene>.csv        (1 シーン 1 CSV なので scene 階層なし)
+output/4DGS/hypernerf/results/<scene>.csv
+```
+
+ディレクトリでシーンが分かるので、ファイル名からはシーン接頭辞を落としている
+（`cook_spinach_baseline_7k.csv` → `cook_spinach/results/baseline_7k.csv`）。
+接頭辞の無い旧 TAG（`baseline_30k` / `trial_*` / `full_*` / `pixel_diff_cam00`）は
+`frames_4d.json` と描画の cam 構成から coffee_martini と確認したうえで
+`coffee_martini/results/` に入れた。
+
+`.gitignore` は `/output/` の一括無視をやめ、ディレクトリは走査させて中身だけ無視し、
+`results/` 配下と `results_summary/` を例外として追跡する形にした。git は「除外した
+ディレクトリ」配下を再包含できないため、この書き方でないと例外が効かない。
+追跡対象は 64 ファイル / 約 1 MB で、ckpt・PNG・mp4 は引き続き無視される。
+既存の `output/3DGS/benchmark_report/results/`（5 ファイル, 88 KB）もこの規則で
+追跡対象に入った。
+
+削除したもの（いずれも中身が別ファイルと完全一致、または途中経過）:
+
+| 削除 | 理由 |
+|---|---|
+| `baseline_full/neu3d_coffee_martini.csv` | `full_baseline_2000.csv` と md5 一致 |
+| `warmstart_full/neu3d_coffee_martini.csv` | `full_warmstart_2000.csv` と md5 一致 |
+| `fixed_gaussian.csv` | `full_fixed_gaussian_7000.csv` と md5 一致（`_per_frame` を持つ後者を残した） |
+| `baseline_30k_progress.csv` | 12 行。`baseline_30k_per_frame.csv`（900 行）の先頭と一致する途中経過 |
+
+併せて変更したもの:
+
+- `runs/4DGS_baseline.sh` / `runs/4DGS_warmstart.sh`: `RESULTS_DIR="${SCENE_DIR}/results"` にし、
+  CSV 名用に `EVAL_TAG`（既定は `TAG` からシーン接頭辞を除いたもの）を追加
+- `runs/3DGS.sh`: `LABEL_PREFIX` を削除（フラット命名の衝突回避専用だった）。
+  CSV は `output/3DGS/<OUT_DATASET>/results/<scene>.csv`
+- `eval/summarize.py`: `rglob` でディレクトリ階層から指標セットを決める方式に変更。
+  既定の `--results_dir` は `output`。旧フラット命名（`eval/archive/` のスクリプトが
+  今も出す）も読めるまま
+- `eval/make_eval_report.py`: run_dir から CSV 置き場と tag を逆算する `mirror_results()`
+  を追加（`<scene>/runs/<TAG>` → `<scene>/results/`）。`--results_dir` は省略可になり、
+  `--compare` に渡した別ランも自動で解決される
+- `*_summary.json` 内の自己参照 `csv` フィールド 6 件
+
+### eval/ の残りのフォルダも output/ へ（同日）
+
+`eval/` は Python スクリプトと `archive/` `templates/` だけを残し、実行成果物は
+すべて `output/` に寄せた。
+
+| 移動元 | 移動先 | 判断 |
+|---|---|---|
+| `eval/gaussian_viz/<TAG>/` | `output/4DGS/neu3d/<scene>/gaussian_viz/<TAG>/` | TAG が `runs/` `renders/` `videos/` と 1:1 なので同じ階層に。TAG 名はそれらと揃えて接頭辞を残す |
+| `eval/logs/` | `output/4DGS/neu3d/coffee_martini/logs/` | 29 本すべて coffee_martini（下記の判定根拠を参照） |
+| `eval/loss_logs/<variant>/<scene>/` | シーン別（下記）| — |
+| `eval/loss_plots/` | シーン別（下記）| — |
+| `eval/__pycache__/` | （削除） | ビルドキャッシュ |
+
+`eval/archive/` は残した。引退したシェルスクリプトであってコードなので、成果物置き場である
+`output/` には移さない。`eval/templates/` も同様にコード側。
+
+`.gitignore` は `/eval/gaussian_viz/` `/eval/loss_plots/` `/eval/logs/` の 3 行を削除し
+（移動により不要）、`!/output/loss_logs/**` を追加した。追跡対象は 352 ファイル / 2.2 MB
+（results 64 + loss_logs 288）。`gaussian_viz/` の 199 MB は引き続き無視される。
+
+併せて変更したもの:
+
+- `runs/4DGS_baseline.sh` / `runs/4DGS_warmstart.sh`: `VIZ_DIR="${SCENE_DIR}/gaussian_viz/${TAG}"`
+- `eval/loss_logger.py`: `--out_dir` の既定値 → `output/loss_logs/_default`
+- `eval/plot_loss.py` / `summarize_warmstart.py` /
+  `gaussian_viz_report.py` / `visualize_gaussians.py` の docstring
+- `eval/README.md`: 併せて、再編済みで実在しなくなっていた `eval/loss_logs_<variant>/` 形式の
+  記述 8 箇所も `output/loss_logs/<variant>/` に直した
+- `configs/README.md`
+
+### シーン別への分類（同日）
+
+`output/` 直下に残っていた `logs/` `loss_logs/` `loss_plots/` `results_summary/` を
+すべてシーン配下へ振り分けた。判定は名前ではなく中身を根拠にしている。
+
+| 対象 | 分類先 | 判定根拠 |
+|---|---|---|
+| `logs/` 29 本 | `4DGS/neu3d/coffee_martini/logs/` | 本文の `dataset: NEU3D` と `output/renders/<TAG>` の 8 タグが coffee_martini 側にのみ実在（cook_spinach には無い） |
+| `loss_logs/<variant>/coffee_martini/` 10 variant | `4DGS/neu3d/coffee_martini/loss_logs/<variant>/` | パスに元からシーンが入っていた |
+| `loss_logs/{_default,baseline}/lego/` | `4DGS/dnerf/loss_logs/lego/<variant>/` | frame_0000..0004 の 5 フレーム構成が `4DGS/dnerf/experiments/{warmstart,baseline}/lego` と一致。`loss_logger.py` で再生成して内容一致を確認した（`_default` = warmstart） |
+| `loss_plots/neu3d_*.html`, `pixel_diff_cam00.html` | `4DGS/neu3d/coffee_martini/loss_plots/` | HTML 本文が coffee_martini のみ言及 |
+| `loss_plots/{lego,lego_compare,warmstart_report}.html` | `4DGS/dnerf/loss_plots/lego/` | HTML 本文が lego のみ言及 |
+| `results_summary/experiment_summary.csv` | `4DGS/neu3d/coffee_martini/results/` | 10 行すべて coffee_martini の warm-start / baseline / Gaussian 固定シリーズ |
+
+階層の順序はデータセットごとの既存の流儀に合わせた。neu3d は `<scene>/<kind>/`、
+dnerf は `<kind>/<scene>/` なので、loss_logs もそれぞれ
+`neu3d/coffee_martini/loss_logs/<variant>/` と `dnerf/loss_logs/lego/<variant>/` になる。
+
+**シーンに割り当てられなかった 2 件**は一旦 `output/cross_scene/` に置いたが、
+不要との判断でディレクトリごと廃止した（利用者が削除）。
+
+- `summary.txt` — `eval/summarize.py` の出力で D-NeRF 8 シーン + HyperNeRF 4 シーンを横断。
+  `python eval/summarize.py` でいつでも再生成できる
+- `render_gallery.html` — 同じ 12 シーンのギャラリー（917 KB）。参照先
+  `output/paper_4dgs/renders/` は以前の `output/` 再編で消えており、リンク切れだった
+
+これに伴い `.gitignore` から `!/output/cross_scene/**` と `/output/cross_scene/*.html` を外した。
+追跡対象は `output/**/results/**` と `output/**/loss_logs/**` の 351 ファイル / 2.2 MB。
+
+`eval/loss_logger.py` は `<out_dir>/<scene>/` を自動で足す作りだったが、シーンが
+出力パスの上位階層に移ったため合わなくなった。`--out_dir` を書き出し先そのものにし、
+`--scene` は進捗表示用の任意ラベルに変更した（`LossLogger(out_dir, frame)`）。
+既存ランから再生成して既存 CSV と完全一致することを確認済み。
+
+## neu3d をラン単位のディレクトリへ（同日）
+
+`output/4DGS/neu3d/<scene>/` の直下をランの一覧にし、描画・動画・可視化・評価・ログを
+各ランの中に入れた。1 ラン 1 ディレクトリで完結する。
+
+```
+output/4DGS/neu3d/<scene>/<TAG>/
+├── frame_0001/ ... frames_4d.json driver.log
+├── renders/        gt/ renders/
+├── videos/
+├── gaussian_viz/
+├── loss_logs/
+├── logs/
+└── results/        metrics.csv per_frame.csv gaussian_counts.csv summary.json
+```
+
+ディレクトリ名はランを表すので、`results/` のファイル名から TAG を落とした
+（`baseline_7k.csv` → `metrics.csv`）。
+
+### TAG 不一致の解決（coffee_martini）
+
+cook_spinach と単一フレーム検証シーンは runs / renders / videos / gaussian_viz の TAG が
+1:1 だが、coffee_martini だけは工程ごとに別名が使われていた
+（学習 `baseline_neu3d_4000_trial` / 描画・評価 `trial_baseline_4000`）。
+名前からの推測ではなく、次の根拠で対応を確定させた。
+
+| 対象 | 根拠 |
+|---|---|
+| runs ↔ renders / results | `eval/archive/` の旧スクリプトの `RUN_DIR\|TAG` 定義と `RUN_DIR` / `RUN_TAG` の対 |
+| loss_logs 10 variant | `frame_0000.csv` の損失値と各ランの `train_log.jsonl` の完全一致（`fixed` 系 2 件は frame 2 開始なので先頭フレームをずらして照合） |
+| logs 29 本 | 本文の `dataset: NEU3D` と描画先 `output/renders/<TAG>` |
+| フレーム数の裏取り | 各 `frames_4d.json` の frame 数と描画 PNG 枚数が一致すること |
+
+確定した対応:
+
+| ラン（新ディレクトリ名） | 旧 renders / results TAG | loss_logs |
+|---|---|---|
+| `baseline_30k` | `baseline_30k`（＋4 フレームの途中経過を `renders_progress/` に） | – |
+| `baseline_7k` | `baseline_7k` | – |
+| `baseline_neu3d_full` | `full_baseline_2000` | `baseline_full` |
+| `warmstart_neu3d_full` | `full_warmstart_2000` | `warmstart_full` |
+| `warmstart_fixed_gaussian_full` | `full_fixed_gaussian_7000` | – |
+| `baseline_neu3d_trial` | `trial_baseline_5000` | `baseline` |
+| `baseline_neu3d_5000_fixed_trial` | `trial_baseline_5000_fixed` | – |
+| `baseline_neu3d_4000_trial` | `trial_baseline_4000` | `baseline_4000` |
+| `baseline_neu3d_7000_trial` | `trial_baseline_7000` | `baseline_7000` |
+| `warmstart_neu3d_4000_trial` | `trial_warmstart_4000` | `warmstart_4000` |
+| `warmstart_neu3d_7000_trial` | `trial_warmstart_7000` | `warmstart_7000` |
+| `warmstart_neu3d_trial` | `warmstart_trial` | `warmstart` |
+| `warmstart_fixed_gaussian` | – | `fixed` |
+| `warmstart_fixed_gaussian_noreset` | – | `fixed_noreset` |
+
+### 削除した二重描画
+
+同一ランを 2 回描画したものが 3 組あり、全ファイルの md5 が一致したので古い方を消した
+（計 870 MB）。
+
+| 削除 | 残した方 |
+|---|---|
+| `renders/baseline_full` (09-14) | `full_baseline_2000` (09-15) |
+| `renders/warmstart_full` (09-14) | `full_warmstart_2000` (09-15) |
+| `renders/fixed_gaussian` (09-15 14:00) | `full_fixed_gaussian_7000` (09-15 16:46) |
+
+### シーン直下に残したもの
+
+単一ランに属さないため、ランと並べてシーン直下に置いた。
+
+- `videos/` — `compare_adc_on_off`, `compare_baseline_vs_warmstart`
+- `loss_plots/` — 複数ランを比較する HTML 5 本
+- `logs/` — `full_100_vram.log`, `trial_rest_vram.log`
+- `results/` — `experiment_summary.csv`, `pixel_diff_cam00.csv`
+
+### 併せて変更したもの
+
+- `frames_4d.json` ほか 27 ファイルの `/runs/` を含むパス 1,781 箇所。書き込み前に
+  JSON として再パースできることを確認し、書き換え後は全ランの `output` が実在することも確認した
+- `output/4DGS/neu3d` 配下のシンボリックリンク 5,370 本はすべて絶対パスで
+  `data/neu3d/.../images/` を指しているため、移動の影響を受けない
+- `runs/4DGS_baseline.sh` / `runs/4DGS_warmstart.sh`: `RUN_DIR="${SCENE_DIR}/${TAG}"` を起点に
+  `RENDER_DIR` / `VIDEO_DIR` / `VIZ_DIR` / `RESULTS_DIR` をぶら下げ、`EVAL_TAG` を廃止
+- `eval/make_eval_report.py`: `mirror_results()` は `<run_dir>/results/` を返すだけになり、
+  `collect_metrics()` は固定名を読む。`--tag` / `--results_dir` は省略可
+- `eval/summarize.py`: `<run>/results/metrics.csv` の `metrics` をシーン名として扱わないようにした
+- `eval/*.py` 18 ファイルの docstring と `eval/README.md` の使用例パス
+
+再編前から古かった参照も併せて直した: `eval/README.md` の `output/<TAG>` 形式 21 箇所
+（`output/` 再編で移動済みだった）と、`output/paper_3dgs/...` 3 箇所。
+
+
+再編前から壊れていた参照を 1 件修正した: `fixed_gaussian_frame1/frames_4d.json` の
+`output` が実在しない `warmstart_fixed_gaussian_full/frame_0001` を指していた
+（`warmstart_fixed_gaussian_full` は frame 2 から始まるランで frame_0001 を持たない）。
+実体のある `fixed_gaussian_frame1/frame_0001` に修正した。
+
+
+## 他データセットもラン単位へ（2026-09-23）
+
+neu3d と同じ規則（**ディレクトリ名は `runs/` ないし `train/` の中身から取る**）を
+3DGS の 4 データセットと 4DGS の dnerf / hypernerf に適用した。これらは
+1 シーン 1 ラン（dnerf の lego だけ例外）なので、シーンディレクトリがそのままランになる。
+
+```
+output/3DGS/<dataset>/<scene>/          ← 旧 <dataset>/runs/<scene>
+├── checkpoints/ config.yaml metrics/ train_log.jsonl training_telemetry.json ...
+├── qualitative/                        ← 旧 <dataset>/qualitative/<scene>
+├── renders/                            ← 旧 <dataset>/renders/<scene>
+└── results/metrics.csv                 ← 旧 <dataset>/results/<scene>.csv
+
+output/4DGS/{dnerf,hypernerf}/<scene>/  ← 旧 <dataset>/train/<scene>
+├── checkpoints/ config.yaml metrics/ train_log.jsonl training_telemetry.json
+├── renders/                            ← 旧 <dataset>/renders/<scene>
+├── videos/  compare.mp4  pred.mp4      ← 旧 <dataset>/videos/<scene>_{compare,pred}.mp4
+└── results/metrics.csv                 ← 旧 <dataset>/results/<scene>.csv
+```
+
+dnerf の lego だけ、論文ベンチマークのラン以外に warm-start 比較の実験が 2 本ある。
+
+```
+output/4DGS/dnerf/lego/
+├── （論文ベンチマークのラン一式）
+├── experiments/
+│   ├── baseline/   frame_0001..0005, loss_logs/   ← 旧 experiments/baseline/lego + loss_logs/lego/baseline
+│   └── warmstart/  frame_0001..0005, loss_logs/   ← 旧 experiments/warmstart/lego + loss_logs/lego/_default
+└── loss_plots/     2 実験を比較する HTML 3 本
+```
+
+### 手を付けなかったもの
+
+- `output/3DGS/blender/`（run001〜run014）と `output/3DGS/implementation/`（run015〜run022 ほか）
+  — 既にラン単位で、各ランが自己完結している。シーン別でもないので現状維持
+- `output/3DGS/benchmark_report/` — 全データセット横断のレポート
+
+### 併せて変更したもの
+
+- `scripts/` 7 ファイル: `make_plot.py` / `make_loss_plot.py` / `make_loss_psnr_plot.py` /
+  `collect.py` のシーン表 各 21 行、`generate_paper_benchmark_qualitative.py` の
+  `run_dir` / `output_dir` 組み立て、`paper_benchmark_dry_run.py` の出力先、
+  `generate_paper_benchmark_report.py` の qualitative へのリンク
+- `output/3DGS/benchmark_report/manifest.json` の絶対パス 21 箇所
+  （書き換え後、含まれる 22 パスすべての実在を確認）
+- `runs/3DGS.sh`: `run_dir` を `output/3DGS/<ds>/<scene>` にし、`render_dir` / `result_dir` を
+  その下にぶら下げた。CSV は `results/metrics.csv`
+- `eval/loss_logger.py` / `eval/plot_loss.py` / `eval/README.md` の使用例パス
+
+`eval/summarize.py` は変更不要だった（ディレクトリ階層から指標セットを決める方式のため、
+`<dataset>/<scene>/results/metrics.csv` をそのまま解決できる）。
+
+
+## eval/ のスクリプト統合（2026-09-23）
+
+25 本 6,200 行あったうち、同じことをする道具が分かれていた 3 組を 1 本にまとめ、
+22 本にした。いずれも旧版と同じ数値が出ることを実データで確認してから削除している。
+
+| 廃止 | 統合先 | 検証 |
+|---|---|---|
+| `summarize_warmstart_full.py` | `summarize_warmstart.py` | 10 フレーム試行・100 フレーム本番の両方で、旧 2 本が出す数値がすべて再現されることを確認 |
+| `summarize_metrics_4d.py` | `compare_runs.py` | per_frame.csv 同士で旧 compare_runs と数値が完全一致、metrics.csv 同士で旧 summarize_metrics_4d と一致（A/B の向きぶん符号が反転） |
+| `summarize_camera_metrics.py` | `evaluate.py --json_out` | smoke ランを再評価し、既存の `summary.json` と JSON が完全一致 |
+
+統合で増えた機能:
+
+- `summarize_warmstart.py` に `--block` を追加。既定の `auto` は 20 フレーム以下なら
+  フレーム別、それより長いランでは 50 フレームごとのブロック平均にする
+  （旧 2 本の使い分けを 1 本に畳んだ）
+- `compare_runs.py` が CSV の列から形式を自動判別する。`frame,camera,...`
+  （evaluate_per_frame.py の出力）ならフレームブロック別まで、`filename,...`
+  （evaluate.py の出力）ならカメラ別までを出す
+- `evaluate.py` のカメラ別集計は `metric_names` に従うので、旧版で 3 種固定だった
+  指標が dnerf の SSIM などにも効く。ファイル名がカメラ別に割れないデータセット
+  （D-NeRF の `r_000.png` など）では自動でスキップする
+
+`runs/4DGS_{baseline,warmstart}.sh` の評価工程は 2 コマンドから 1 コマンドになった。
+
+`eval/README.md` の冒頭に**ツール索引**を追加した。従来は 5 本しか表に無く、
+22 本中 13 本は README に名前すら出ていなかった。工程順（データ変換 / 学習・描画 /
+指標算出 / 集計・レポート / 可視化・動画）に並べ、各ツールの入出力と、
+`runs/*.sh` が自動実行するかどうかを示している。

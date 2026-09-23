@@ -6,7 +6,7 @@ warm-start あり / なし を同じ条件で回すためのドライバ。
     # warm-start あり
     python eval/warmstart_trainer.py \
         --source_path data/neu3d/coffee_martini/converted_4d \
-        --output_dir  output/4DGS/neu3d/warmstart_neu3d_trial \
+        --output_dir  output/4DGS/neu3d/coffee_martini/warmstart_neu3d_trial \
         --config      configs/neu3d/trial_5000.yaml \
         --start_frame 1 --end_frame 10 \
         --image-directory images --render-backend cuda
