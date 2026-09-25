@@ -22,6 +22,7 @@ MS-SSIM / D-SSIM / LPIPS を計算し、データセット単位で集計する�
 | ツール | 用途 | 主な入力 → 出力 | 自動 |
 |---|---|---|---|
 | `warmstart_trainer.py` | 4D の warm-start 学習ドライバ | `--source_path --config` → `--output_dir` | ● |
+| `scripts/warmstart_iteration_sweep.py` | warm-start の iteration 数を振って held-out 評価まで通す | `--data --frame1-checkpoint` → `--output` (`results.csv`) | ○ |
 | `render_4d.py` | 4D ランを 1 プロセスで全フレーム描画 | `--run_dir --data_dir` → `--out_dir` (`renders/` `gt/`) | ● |
 | `benchmark_fps.py` | 描画 FPS の実測 | `--run_dir --data_dir` → 標準出力 | ○ |
 | `rebuild_manifest_4d.py` | 壊れた `frames_4d.json` を実体から再生成 | `--run_dir` → 同ファイル | ○ |
@@ -43,6 +44,7 @@ MS-SSIM / D-SSIM / LPIPS を計算し、データセット単位で集計する�
 | `compare_runs.py` | 2 ランを突き合わせる（カメラ別 / フレームブロック別） | `--a --b` (`per_frame.csv` でも `metrics.csv` でも可) → 標準出力 | ○ |
 | `summarize_warmstart.py` | warm-start と baseline の収束比較 | `--warm_dir --baseline_dir` (+ `--warm_run --baseline_run`) → 標準出力 | ○ |
 | `make_eval_report.py` | ラン 1 本の `eval.md` を生成 | `--run_dir` (+ `--compare`) → `<run_dir>/eval.md` | ● |
+| `scripts/plot_warmstart_sweep.py` | iteration 数 sweep の図と飽和/ドリフト分析 | `--sweep` → `<sweep>/figures/` (`report.html`, `summary.csv`, `analysis.json`, 定性比較 PNG) | ○ |
 
 ### 5. 可視化・動画
 
@@ -77,6 +79,11 @@ MS-SSIM / D-SSIM / LPIPS を計算し、データセット単位で集計する�
   （チェックポイント + データセットから直接 PSNR/SSIM/LPIPS-VGG を計算し JSON 出力）
 - `scripts/run_paper_benchmark.py` / `generate_paper_benchmark_report.py`
   （21 シーンの学習〜評価〜CSV 集計を通しで実行）
+
+`scripts/warmstart_iteration_sweep.py` は 3 本目の経路で、チェックポイントから
+直接 `evaluate_camera_set` を呼ぶ。つまり**数値は `scripts/evaluate.py` と同じ実装**
+であり、`eval/evaluate.py` の値とは SSIM 実装の差で小数第 2〜3 位がずれる。
+warm-start の条件比較では前者だけを使い、両者を混ぜないこと。
 
 `eval/` は **既に書き出された画像だけがある場合**（他実装の出力との比較、
 学習を再実行せずに指標を測り直したい場合、4D の frame 系列を後段でまとめて
