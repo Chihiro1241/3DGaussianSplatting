@@ -24,7 +24,10 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import shutil
+import subprocess
 import sys
+from datetime import datetime, timezone
 from dataclasses import asdict, replace
 from fnmatch import fnmatch
 from pathlib import Path
@@ -47,6 +50,7 @@ from gaussian_splatting.config import (  # noqa: E402
 )
 from gaussian_splatting.data import load_dataset  # noqa: E402
 from gaussian_splatting.data.dataset import CameraSplits  # noqa: E402
+from gaussian_splatting.io import save_gaussians_ply  # noqa: E402
 from gaussian_splatting.model import generate_initial_points  # noqa: E402
 from gaussian_splatting.renderer import GaussianRenderer  # noqa: E402
 from gaussian_splatting.training.trainer import Trainer  # noqa: E402
@@ -170,6 +174,53 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="K",
         help="thin each snapshot to at most K Gaussians; 0 stores every "
         "Gaussian (default: 20000)",
+    )
+    warm_start = parser.add_argument_group(
+        "warm start",
+        "Overrides for config.warm_start.  These apply to carried-over frames "
+        "only, so frame 1 always trains like an ordinary static run.  Whatever "
+        "is resolved here is written into <output>/config.yaml.",
+    )
+    warm_start.add_argument(
+        "--position-lr-mode",
+        choices=("exponential", "fixed"),
+        default=None,
+        help="'fixed' holds the position learning rate constant instead of "
+        "decaying it over training.iterations, so that changing a frame's "
+        "iteration budget does not also change its schedule",
+    )
+    warm_start.add_argument(
+        "--position-lr-fixed",
+        type=float,
+        default=None,
+        metavar="LR",
+        help="constant position learning rate for --position-lr-mode fixed, "
+        "scaled by the scene extent like training.position_lr_initial",
+    )
+    warm_start.add_argument(
+        "--adam-state",
+        choices=("reset", "carry"),
+        default=None,
+        help="'carry' inherits the previous frame's Adam moments; it requires "
+        "features.adaptive_density_control=false so the Gaussian count is fixed",
+    )
+    storage = parser.add_argument_group("per-frame storage")
+    storage.add_argument(
+        "--frame-gaussian-dir",
+        type=Path,
+        default=None,
+        metavar="DIR",
+        help="also write each finished frame's Gaussians as "
+        "DIR/frame_NNNN.ply (official property names).  A PLY holds only the "
+        "parameters, so it is roughly a third of a checkpoint",
+    )
+    storage.add_argument(
+        "--keep-frame-checkpoints",
+        choices=("all", "last"),
+        default="all",
+        help="'last' deletes a frame's checkpoints once the next frame has "
+        "started from them, holding the run to one checkpoint on disk while "
+        "still leaving a resume point (default: all)",
     )
     return parser
 
@@ -327,6 +378,92 @@ def _load_frame_datasets(
     return dataset, train_cameras_quarter, train_cameras_half, evaluation_cameras
 
 
+def _apply_warm_start_overrides(
+    config: Config, args: argparse.Namespace
+) -> Config:
+    """Fold the warm-start command-line overrides into the resolved config.
+
+    Doing this before the run directory is written is what makes an experiment
+    reproducible from ``<output>/config.yaml`` alone, with no need to also
+    recover the command line.
+    """
+
+    overrides = {
+        "position_lr_mode": args.position_lr_mode,
+        "position_lr_fixed": args.position_lr_fixed,
+        "adam_state": args.adam_state,
+    }
+    supplied = {k: v for k, v in overrides.items() if v is not None}
+    if not supplied:
+        return config
+    updated = replace(config, warm_start=replace(config.warm_start, **supplied))
+    # Re-validate through the loader so a command-line value is rejected on the
+    # same terms as a value written in the file.
+    return config_from_mapping(asdict(updated))
+
+
+def _git_revision() -> dict[str, object]:
+    """Return the working tree's commit and whether it has uncommitted edits."""
+
+    def git(*arguments: str) -> str | None:
+        try:
+            completed = subprocess.run(
+                ("git", *arguments),
+                cwd=_REPO_ROOT,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except OSError:
+            return None
+        if completed.returncode != 0:
+            return None
+        return completed.stdout.strip()
+
+    commit = git("rev-parse", "HEAD")
+    status = git("status", "--porcelain")
+    return {
+        "commit": commit,
+        "branch": git("rev-parse", "--abbrev-ref", "HEAD"),
+        # None means the question could not be answered, which is not the same
+        # as a clean tree and should not be recorded as one.
+        "dirty": None if status is None else bool(status),
+    }
+
+
+def _write_run_metadata(
+    path: Path, config: Config, args: argparse.Namespace, device: torch.device
+) -> None:
+    """Record what produced this run beside its results."""
+
+    payload = {
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "git": _git_revision(),
+        "argv": sys.argv,
+        "entry_point": "scripts/train_4d.py",
+        "config_source": str(args.config),
+        "resolved_config": asdict(config),
+        "device": str(device),
+        "gpu": (
+            torch.cuda.get_device_name(device) if device.type == "cuda" else None
+        ),
+        "torch_version": torch.__version__,
+        "python_version": sys.version,
+    }
+    destination = path / "run_metadata.json"
+    temporary = destination.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    temporary.replace(destination)
+
+
+def _discard_checkpoints(frame_output: Path) -> None:
+    """Delete one finished frame's checkpoints under --keep-frame-checkpoints last."""
+
+    checkpoints = frame_output / "checkpoints"
+    if checkpoints.is_dir():
+        shutil.rmtree(checkpoints)
+
+
 def _write_manifest(path: Path, payload: dict[str, object]) -> None:
     """Atomically publish the frame-sequence manifest."""
     temporary = path.with_suffix(".json.tmp")
@@ -337,7 +474,7 @@ def _write_manifest(path: Path, payload: dict[str, object]) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    config = load_config(args.config)
+    config = _apply_warm_start_overrides(load_config(args.config), args)
     if args.start_frame < 1:
         raise ValueError("--start-frame must be a positive integer")
     if args.end_frame is not None and args.end_frame < args.start_frame:
@@ -355,6 +492,11 @@ def main(argv: list[str] | None = None) -> int:
         raise ValueError("--carry-over-sh-degree requires --carry-over-checkpoint")
     if args.subsequent_frame_iterations is not None and args.subsequent_frame_iterations <= 0:
         raise ValueError("--subsequent-frame-iterations must be positive")
+    if args.position_lr_fixed is not None and args.position_lr_mode == "exponential":
+        raise ValueError(
+            "--position-lr-fixed has no effect with --position-lr-mode exponential"
+        )
+    carry_adam = config.warm_start.adam_state == "carry"
 
     frame_directories = discover_frame_directories(
         args.data, pattern=args.frame_pattern, names=args.frames
@@ -373,7 +515,10 @@ def main(argv: list[str] | None = None) -> int:
         config,
         exist_ok=args.allow_existing_output or args.start_frame > 1,
     )
+    _write_run_metadata(args.output, config, args, device)
     renderer = GaussianRenderer(config.rendering, backend=args.render_backend)
+    if args.frame_gaussian_dir is not None:
+        args.frame_gaussian_dir.mkdir(parents=True, exist_ok=True)
 
     handoff: FrameHandoff | None = None
     if args.carry_over_checkpoint is not None:
@@ -384,6 +529,7 @@ def main(argv: list[str] | None = None) -> int:
             dtype=dtype,
             device="cpu",
             active_sh_degree=args.carry_over_sh_degree,
+            carry_optimizer_state=carry_adam,
         )
 
     manifest_path = args.output / MANIFEST_NAME
@@ -472,10 +618,17 @@ def main(argv: list[str] | None = None) -> int:
                 args, frame_output, frame=frame_number
             ),
         )
+        schedule = (
+            f"position lr {state.position_learning_rate:.3e} (fixed)"
+            if state.position_learning_rate is not None
+            else "position lr exponential"
+        )
         print(
             f"[frame {frame_number}/{last_frame}] {frame_directory.name}: "
             f"{initialization}, {initial_num_gaussians} Gaussians, "
-            f"{frame_config.training.iterations} iterations -> {frame_output}",
+            f"SH degree {initial_sh_degree}, "
+            f"{frame_config.training.iterations} iterations, "
+            f"{schedule}, Adam {state.adam_state} -> {frame_output}",
             flush=True,
         )
         try:
@@ -497,11 +650,19 @@ def main(argv: list[str] | None = None) -> int:
             )
             raise
 
-        # The next frame inherits only these parameters (equations 150-151);
-        # its Adam moments and density statistics are rebuilt from scratch.
+        # The next frame inherits these parameters (equations 150-151).  Its
+        # density statistics are always rebuilt from scratch; the Adam moments
+        # travel with them only under warm_start.adam_state="carry".
         handoff = FrameHandoff.from_model(
-            trainer.model, source_frame=frame_number, device="cpu"
+            trainer.model,
+            source_frame=frame_number,
+            device="cpu",
+            optimizer=state.optimizer if carry_adam else None,
         )
+        gaussian_ply = None
+        if args.frame_gaussian_dir is not None:
+            gaussian_ply = args.frame_gaussian_dir / f"frame_{frame_number:04d}.ply"
+            save_gaussians_ply(gaussian_ply, trainer.model)
         records.append(
             {
                 "frame": frame_number,
@@ -515,7 +676,11 @@ def main(argv: list[str] | None = None) -> int:
                 "active_sh_degree_start": initial_sh_degree,
                 "active_sh_degree_end": handoff.active_sh_degree,
                 "scene_extent": state.scene_extent,
+                "adam_state": state.adam_state,
+                "position_learning_rate": state.position_learning_rate,
+                "training_loop_seconds": trainer.training_loop_seconds,
                 "best_mean_psnr": trainer.best_mean_psnr,
+                "gaussian_ply": None if gaussian_ply is None else str(gaussian_ply),
                 "final_checkpoint": str(
                     frame_output
                     / "checkpoints"
@@ -531,6 +696,12 @@ def main(argv: list[str] | None = None) -> int:
                 "frame_count": len(frame_directories),
             },
         )
+
+        # Drop the previous frame's checkpoints only now: this frame has
+        # finished and become the new resume point, so the run never goes
+        # through a moment with nothing to restart from.
+        if args.keep_frame_checkpoints == "last" and frame_number > args.start_frame:
+            _discard_checkpoints(frame_output_directory(args.output, frame_number - 1))
 
         del trainer, state, dataset, train_cameras, quarter, half, evaluation_cameras
         if device.type == "cuda":

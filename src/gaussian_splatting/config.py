@@ -110,6 +110,33 @@ class OutputConfig:
 
 
 @dataclass(frozen=True)
+class WarmStartConfig:
+    """Overrides applied only to carried-over frames of a 4D sequence.
+
+    This section is optional: a configuration that omits it keeps the static
+    training behaviour exactly, which is what lets every pre-existing config
+    file stay unchanged.
+
+    ``position_lr_mode="fixed"`` replaces the ``total_iterations``-dependent
+    exponential decay with a constant learning rate, so that changing a frame's
+    iteration budget does not also change its learning-rate schedule.
+    ``position_lr_fixed`` is scaled by the scene extent exactly like
+    ``training.position_lr_initial``.
+    """
+
+    position_lr_mode: str
+    position_lr_fixed: float
+    adam_state: str
+
+
+DEFAULT_WARM_START = WarmStartConfig(
+    position_lr_mode="exponential",
+    position_lr_fixed=1.6e-5,
+    adam_state="reset",
+)
+
+
+@dataclass(frozen=True)
 class FeatureConfig:
     adaptive_density_control: bool
     opacity_reset: bool
@@ -130,6 +157,7 @@ class Config:
     density_control: AdaptiveDensityControlConfig
     output: OutputConfig
     features: FeatureConfig
+    warm_start: WarmStartConfig = DEFAULT_WARM_START
 
 
 _SCHEMA: dict[str, tuple[type[Any], dict[str, object]]] = {
@@ -239,6 +267,21 @@ _SCHEMA: dict[str, tuple[type[Any], dict[str, object]]] = {
 }
 
 
+# Sections a configuration file may omit entirely.  When one is absent the
+# corresponding ``Config`` default applies; when it is present its keys are
+# checked as strictly as every required section.
+_OPTIONAL_SCHEMA: dict[str, tuple[type[Any], dict[str, object]]] = {
+    "warm_start": (
+        WarmStartConfig,
+        {
+            "position_lr_mode": str,
+            "position_lr_fixed": float,
+            "adam_state": str,
+        },
+    ),
+}
+
+
 def _mapping(value: object, path: str) -> Mapping[str, object]:
     if not isinstance(value, Mapping):
         raise ConfigError(f"{path} must be a mapping, got {type(value).__name__}")
@@ -248,11 +291,15 @@ def _mapping(value: object, path: str) -> Mapping[str, object]:
 
 
 def _check_keys(
-    values: Mapping[str, object], expected: set[str], path: str
+    values: Mapping[str, object],
+    expected: set[str],
+    path: str,
+    optional: frozenset[str] = frozenset(),
 ) -> None:
+    """Reject missing and unknown keys; ``optional`` names may be absent."""
     actual = set(values)
-    missing = sorted(expected - actual)
-    unknown = sorted(actual - expected)
+    missing = sorted(expected - actual - optional)
+    unknown = sorted(actual - expected - optional)
     if missing or unknown:
         details: list[str] = []
         if missing:
@@ -455,6 +502,21 @@ def _validate_config(config: Config) -> None:
     _require(config.output.exist_policy == "error",
              "output.exist_policy must be error")
 
+    warm_start = config.warm_start
+    _require(
+        warm_start.position_lr_mode in {"exponential", "fixed"},
+        "warm_start.position_lr_mode must be exponential or fixed",
+    )
+    _require(
+        math.isfinite(warm_start.position_lr_fixed)
+        and warm_start.position_lr_fixed > 0.0,
+        "warm_start.position_lr_fixed must be positive and finite",
+    )
+    _require(
+        warm_start.adam_state in {"reset", "carry"},
+        "warm_start.adam_state must be reset or carry",
+    )
+
 
 def config_from_mapping(values: Mapping[str, object]) -> Config:
     """Build a :class:`Config` from a complete strict mapping.
@@ -463,15 +525,24 @@ def config_from_mapping(values: Mapping[str, object]) -> Config:
     output, whose fixed-length configuration sequences are tuples.
 
     Unknown keys, missing keys, type mismatches, and unsupported values all
-    raise :class:`ConfigError`.
+    raise :class:`ConfigError`.  The sections in ``_OPTIONAL_SCHEMA`` may be
+    omitted entirely, in which case their ``Config`` defaults apply; anything
+    they do contain is checked just as strictly.
     """
 
     top_level = _mapping(values, "config")
-    _check_keys(top_level, set(_SCHEMA), "config")
+    _check_keys(
+        top_level, set(_SCHEMA), "config", optional=frozenset(_OPTIONAL_SCHEMA)
+    )
     sections = {
         name: _build_section(name, top_level[name], section_type, fields)
         for name, (section_type, fields) in _SCHEMA.items()
     }
+    for name, (section_type, fields) in _OPTIONAL_SCHEMA.items():
+        if name in top_level:
+            sections[name] = _build_section(
+                name, top_level[name], section_type, fields
+            )
     config = Config(**sections)
     _validate_config(config)
     return config
@@ -527,6 +598,8 @@ __all__ = [
     "RenderingConfig",
     "RuntimeConfig",
     "TrainingConfig",
+    "WarmStartConfig",
+    "DEFAULT_WARM_START",
     "config_from_mapping",
     "load_config",
     "resolve_device",

@@ -272,9 +272,86 @@ class PositionLearningRateScheduler:
         self.step(int(state_dict["current_iteration"]))
 
 
+class FixedPositionLearningRateScheduler:
+    """Hold the ``means_world`` learning rate constant for a whole frame.
+
+    :class:`PositionLearningRateScheduler` interpolates between two rates over
+    ``total_iterations``, so shortening a run also steepens its schedule.  A
+    warm-started frame of a 4D sequence is compared against other iteration
+    budgets, and that coupling would confound the comparison: the only thing
+    that should change with the budget is how long optimization runs, not how
+    fast the positions move.  This scheduler removes the coupling by returning
+    ``learning_rate`` at every iteration.
+
+    The interface matches :class:`PositionLearningRateScheduler` so that
+    :class:`~gaussian_splatting.training.trainer.Trainer` and the checkpoint
+    functions accept either one.
+    """
+
+    def __init__(
+        self,
+        optimizer: Optimizer,
+        learning_rate: float,
+        total_iterations: int = 30_000,
+    ) -> None:
+        if not isinstance(learning_rate, Real) or isinstance(learning_rate, bool):
+            raise TypeError("learning_rate must be a real number")
+        rate = float(learning_rate)
+        if not math.isfinite(rate) or rate <= 0.0:
+            raise ValueError("learning_rate must be positive and finite")
+        if int(total_iterations) <= 0:
+            raise ValueError("total_iterations must be positive")
+        self.optimizer = optimizer
+        self.learning_rate = rate
+        self.total_iterations = int(total_iterations)
+        self.current_iteration = 0
+        # Fail at construction, like the exponential scheduler, rather than at
+        # the first step of training.
+        self._position_group()
+
+    def _position_group(self) -> dict[str, Any]:
+        groups = [
+            g for g in self.optimizer.param_groups if g.get("name") == "means_world"
+        ]
+        if len(groups) != 1:
+            raise ValueError("optimizer must contain exactly one 'means_world' group")
+        return groups[0]
+
+    def step(self, iteration: int) -> float:
+        """Set and return the constant position learning rate."""
+
+        self.current_iteration = min(max(int(iteration), 0), self.total_iterations)
+        self._position_group()["lr"] = self.learning_rate
+        return self.learning_rate
+
+    def state_dict(self) -> dict[str, int | float | str]:
+        return {
+            "schedule": "fixed",
+            "current_iteration": self.current_iteration,
+            "total_iterations": self.total_iterations,
+            "learning_rate": self.learning_rate,
+        }
+
+    def load_state_dict(self, state_dict: dict[str, int | float | str]) -> None:
+        if state_dict.get("schedule") != "fixed":
+            raise ValueError(
+                "scheduler state was not written by a fixed position schedule"
+            )
+        required = {"current_iteration", "total_iterations", "learning_rate"}
+        missing = required.difference(state_dict)
+        if missing:
+            raise ValueError(f"scheduler state is missing keys: {sorted(missing)}")
+        if int(state_dict["total_iterations"]) != self.total_iterations:
+            raise ValueError("scheduler total_iterations does not match")
+        if float(state_dict["learning_rate"]) != self.learning_rate:
+            raise ValueError("scheduler learning rate does not match")
+        self.step(int(state_dict["current_iteration"]))
+
+
 __all__ = [
     "DensityControlEventParameters",
     "DensityControlScheduleDecision",
+    "FixedPositionLearningRateScheduler",
     "PositionLearningRateScheduler",
     "compute_scene_extent",
     "density_control_event_parameters",
