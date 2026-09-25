@@ -29,7 +29,7 @@ Usage::
 
     python scripts/plot_warmstart_sweep.py \\
         --sweep output/4DGS/neu3d/cook_spinach/warmstart_sweep_stage1 \\
-        --data data/neu3d/cook_spinach/converted_4d
+        --data data/dynamic/neu3d/cook_spinach/converted_4d
 """
 
 from __future__ import annotations

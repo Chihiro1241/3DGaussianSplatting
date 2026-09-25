@@ -36,7 +36,7 @@ resumes by being re-run with the same arguments.
 Usage::
 
     python scripts/warmstart_iteration_sweep.py \\
-        --data data/neu3d/cook_spinach/converted_4d \\
+        --data data/dynamic/neu3d/cook_spinach/converted_4d \\
         --frame1-checkpoint output/4DGS/neu3d/cook_spinach/\\
 cook_spinach_baseline_30k/frame_0001/checkpoints/iteration_00030000.pt \\
         --output output/4DGS/neu3d/cook_spinach/warmstart_sweep_stage1 \\

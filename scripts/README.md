@@ -74,7 +74,7 @@ warm-start するとき、1 フレームに何 iteration 割くべきかを決�
 ```bash
 # frame 1 は既存の 30,000 iter チェックポイントを全条件で共有する
 python scripts/warmstart_iteration_sweep.py \
-    --data data/neu3d/cook_spinach/converted_4d \
+    --data data/dynamic/neu3d/cook_spinach/converted_4d \
     --frame1-checkpoint output/4DGS/neu3d/cook_spinach/cook_spinach_baseline_30k/\
 frame_0001/checkpoints/iteration_00030000.pt \
     --output output/4DGS/neu3d/cook_spinach/warmstart_sweep_stage1 \
@@ -83,7 +83,7 @@ frame_0001/checkpoints/iteration_00030000.pt \
 
 python scripts/plot_warmstart_sweep.py \
     --sweep output/4DGS/neu3d/cook_spinach/warmstart_sweep_stage1 \
-    --data data/neu3d/cook_spinach/converted_4d
+    --data data/dynamic/neu3d/cook_spinach/converted_4d
 ```
 
 `--iters 0` は学習せず frame 1 のモデルを全フレームで評価する下限、
