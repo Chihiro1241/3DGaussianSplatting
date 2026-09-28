@@ -16,9 +16,9 @@ eval/compare_runs.py
 
 入力は列から自動判別する。
 
-* ``frame,camera,psnr,...``   — evaluate_per_frame.py の出力。フレーム番号があるので
+* ``frame,camera,psnr,...``   — scripts/evaluate.py --per-frame-csv の出力。フレーム番号があるので
   同じ (frame, camera) の集合だけを比べ、フレームブロック別の推移も出せる。
-* ``filename,psnr,...``       — evaluate.py の出力。1 行 1 画像で最終行が全体平均。
+* ``filename,psnr,...``       — scripts/evaluate.py --output-csv の出力。1 行 1 画像で最終行が全体平均。
   filename (cam00.png など) からカメラを取り、カメラ別に平均する。フレーム番号が
   無いのでブロック別は出せない。
 
@@ -26,7 +26,7 @@ eval/compare_runs.py
 「どちらが良いか」ではなく「どのフレームを含んだか」の比較になってしまう。
 
 Neu3D の公式指定では cam00 が held-out の中央参照カメラ。本体の COLMAP ローダーは
-8 枚ごと固定分割なので test は cam00 / cam09 / cam19 になる。evaluate.py の neu3d
+8 枚ごと固定分割なので test は cam00 / cam09 / cam19 になる。scripts/evaluate.py の neu3d
 プリセットは MS-SSIM ではなく D-SSIM を出す。
 """
 
@@ -47,7 +47,7 @@ HIGHER_IS_BETTER = {"psnr": True, "d_ssim": False, "lpips": False}
 def read(path: Path) -> tuple[list[dict[str, object]], bool]:
     """CSV を読み、(行, フレーム番号を持つか) を返す。
 
-    frame 列があれば per_frame.csv、無ければ evaluate.py の per-image CSV とみなす。
+    frame 列があれば per_frame.csv、無ければ scripts/evaluate.py の per-image CSV とみなす。
     後者は filename の語幹 (cam00.png → cam00) をカメラ名に使い、集計行は落とす。
     """
     rows: list[dict[str, object]] = []

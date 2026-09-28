@@ -62,7 +62,7 @@ run_step () {
 #   DATA_ROOT     : シーンディレクトリの親
 #   OUT_DATASET   : output/3DGS/<OUT_DATASET>/ の名前
 #   CONFIG        : 背景色が違うので synthetic と real で分かれる
-#   EVAL_DATASET  : eval/evaluate.py の --dataset (指標セットの選択)
+#   EVAL_DATASET  : scripts/evaluate.py の --dataset (指標セットの選択)
 #                   CSV は output/3DGS/<OUT_DATASET>/<scene>/results/metrics.csv に出る。
 #                   eval/summarize.py はディレクトリ名から指標セットを決める
 #   RGBA_BG       : 学習 config の data.rgba_background と必ず揃える
@@ -219,7 +219,7 @@ run_scene () {
             return 1
         fi
         run_step mkdir -p "$render_dir"
-        run_step python scripts/render.py \
+        run_step python scripts/rendering/render_3d.py \
             --data "$data_dir" --checkpoint "$final_ckpt" --split test \
             --output "$render_dir" --image-directory "$image_dir" \
             --render-backend "$RENDER_BACKEND" \
@@ -234,11 +234,11 @@ run_scene () {
         echo ""
         echo "--- 画像ベース評価 (背景 ${RGBA_BG}) ---"
         run_step mkdir -p "$result_dir"
-        run_step python eval/evaluate.py \
+        run_step python scripts/evaluate.py \
             --dataset "$EVAL_DATASET" \
-            --render_dir "$render_dir" --gt_dir "$gt_dir" \
-            --output_csv "$result_dir/metrics.csv" \
-            --rgba_background "$RGBA_BG" --device "$DEVICE" \
+            --render-dir "$render_dir" --gt-dir "$gt_dir" \
+            --output-csv "$result_dir/metrics.csv" \
+            --rgba-background "$RGBA_BG" --device "$DEVICE" \
             || { echo "[失敗] 画像ベース評価: $scene"; return 1; }
     fi
 

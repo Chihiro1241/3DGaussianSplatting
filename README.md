@@ -75,7 +75,7 @@ python scripts/train.py \
   --config configs/default.yaml \
   --output output/3DGS/blender/run001_example
 
-python scripts/render.py \
+python scripts/rendering/render_3d.py \
   --data data \
   --checkpoint output/3DGS/blender/run001_example/checkpoints/latest.pt \
   --split test \

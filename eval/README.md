@@ -1,7 +1,9 @@
-# eval/ — レンダリング画像ベースのオフライン評価
+# eval/ — 評価結果の集計・比較・可視化
 
-`scripts/render.py` が書き出した PNG と GT PNG を突き合わせて PSNR / SSIM /
-MS-SSIM / D-SSIM / LPIPS を計算し、データセット単位で集計する。
+評価指標の実装は本体の `src/gaussian_splatting/evaluation/` に、描画と評価の
+入口は `scripts/`（描画: `scripts/rendering/render_3d.py` / `render_4d.py`、評価: `scripts/evaluate.py`）にある。
+`eval/` はそれらが書き出した CSV・チェックポイント・ログを読んで集計・比較・
+可視化する道具を置く場所である。
 
 ## ツール索引
 
@@ -25,16 +27,15 @@ MS-SSIM / D-SSIM / LPIPS を計算し、データセット単位で集計する�
 |---|---|---|---|
 | `warmstart_trainer.py` | 4D の warm-start 学習ドライバ | `--source_path --config` → `--output_dir` | ● |
 | `scripts/warmstart_iteration_sweep.py` | warm-start の iteration 数を振って held-out 評価まで通す | `--data --frame1-checkpoint` → `--output` (`results.csv`) | ○ |
-| `render_4d.py` | 4D ランを 1 プロセスで全フレーム描画 | `--run_dir --data_dir` → `--out_dir` (`renders/` `gt/`) | ● |
-| `benchmark_fps.py` | 描画 FPS の実測 | `--run_dir --data_dir` → 標準出力 | ○ |
-| `rebuild_manifest_4d.py` | 壊れた `frames_4d.json` を実体から再生成 | `--run_dir` → 同ファイル | ○ |
+| `scripts/rendering/render_4d.py` | 4D ランを 1 プロセスで全フレーム描画 | `--run_dir --data_dir` → `--out_dir` (`renders/` `gt/`) | ● |
+| `scripts/rendering/benchmark_fps.py` | 描画 FPS の実測 | `--run_dir --data_dir` → 標準出力 | ○ |
+| `scripts/rebuild_manifest_4d.py` | 壊れた `frames_4d.json` を実体から再生成 | `--run_dir` → 同ファイル | ○ |
 
 ### 3. 指標の算出
 
 | ツール | 用途 | 主な入力 → 出力 | 自動 |
 |---|---|---|---|
-| `evaluate.py` | 画像対から PSNR/SSIM/D-SSIM/MS-SSIM/LPIPS | `--render_dir --gt_dir` → `--output_csv` (`metrics.csv`) と `--json_out` (`summary.json`、カメラ別) | ● |
-| `evaluate_per_frame.py` | 同上をフレーム × カメラで展開 | 同上 → `--output_csv` (`per_frame.csv`) | ● |
+| `scripts/evaluate.py` (画像モード) | 画像対から PSNR/SSIM/D-SSIM/MS-SSIM/LPIPS | `--render-dir --gt-dir` → `--output-csv` (`metrics.csv`)、`--json-out` (`summary.json`、カメラ別)、`--per-frame-csv` (`per_frame.csv`) | ● |
 | `gaussian_count_trend.py` | ガウシアン数・時間・VRAM の推移 | `--run_dir` → `--output_csv` (`gaussian_counts.csv`) | ● |
 | `loss_logger.py` | `train_log.jsonl` を損失 CSV へ変換 | `--run_dir` → `--out_dir` (`loss_logs/`) | ○ |
 
@@ -57,8 +58,7 @@ MS-SSIM / D-SSIM / LPIPS を計算し、データセット単位で集計する�
 | `plot_loss.py` | 損失曲線の比較 HTML | `--log_dir --baseline_dir` → `--out_html` | ○ |
 | `extract_snapshots.py` | 学習過程のスナップショット (npz) を抽出 | `--run` → npz | ○ |
 | `snapshot_viewer.py` | フレーム × iteration の 2 軸ビューワー (streamlit) | `--run` → ブラウザ | ○ |
-| `make_videos_4d.py` | 描画結果を mp4 に | `--render_root` → `--out_dir` | ● |
-| `make_compare_runs_video.py` | 2 ランを並べた比較動画 | `--a_root --b_root --gt_root` → `--out_dir` | ○ |
+| `scripts/rendering/make_video.py` | 描画結果をカメラごとの mp4 に（単一視点のみ） | `--render-root` → `--out-dir` (`<camera>.mp4`) | ● |
 
 `archive/` には退役したシェルスクリプトが置いてある（`run_all.sh` ほか）。
 実行経路は `runs/` に移したので、過去の実行記録としてのみ残している。
@@ -71,61 +71,58 @@ MS-SSIM / D-SSIM / LPIPS を計算し、データセット単位で集計する�
 |---|---|
 | `summarize_warmstart_full.py` | `summarize_warmstart.py`（`--block` で試行用/本番用を切り替え） |
 | `summarize_metrics_4d.py` | `compare_runs.py`（CSV の列から形式を自動判別） |
-| `summarize_camera_metrics.py` | `evaluate.py --json_out` |
+| `summarize_camera_metrics.py` | `evaluate.py --json_out`（現 `scripts/evaluate.py --json-out`） |
+| `eval/evaluate.py` / `eval/evaluate_per_frame.py` | `scripts/evaluate.py` の画像モード（指標は `src` の実装を使う） |
+| `eval/render_4d.py` | `scripts/rendering/render_4d.py`（移動のみ） |
+| `eval/make_videos_4d.py` / `eval/make_compare_runs_video.py` | `scripts/rendering/make_video.py`（単一視点の動画のみ。GT 比較・ラン比較・縦積みは廃止） |
 
-## リポジトリ本体の評価との使い分け
+## 評価の入口は `scripts/evaluate.py` の 1 本
 
-本体には既にチェックポイント直結の評価経路がある。**数値の正式な記録はそちらが正**。
+| モード | 入力 | 出力 |
+|---|---|---|
+| チェックポイント (`--checkpoint`) | チェックポイント + データセット（その場で描画） | per-image の PSNR / SSIM / LPIPS を JSON |
+| 画像 (`--render-dir`) | 描画済み PNG + GT PNG | `metrics.csv` / `summary.json` / `per_frame.csv` |
 
-- `scripts/evaluate.py` → `gaussian_splatting.evaluation.runner.evaluate_camera_set`
-  （チェックポイント + データセットから直接 PSNR/SSIM/LPIPS-VGG を計算し JSON 出力）
-- `scripts/run_paper_benchmark.py` / `generate_paper_benchmark_report.py`
-  （21 シーンの学習〜評価〜CSV 集計を通しで実行）
+画像モードは、他実装の出力と比べたいとき、学習を再実行せずに測り直したいとき、
+4D の frame 系列を後段でまとめて測るときに使う。
 
-`scripts/warmstart_iteration_sweep.py` は 3 本目の経路で、チェックポイントから
-直接 `evaluate_camera_set` を呼ぶ。つまり**数値は `scripts/evaluate.py` と同じ実装**
-であり、`eval/evaluate.py` の値とは SSIM 実装の差で小数第 2〜3 位がずれる。
-warm-start の条件比較では前者だけを使い、両者を混ぜないこと。
+どちらのモードも指標は `gaussian_splatting.evaluation` の同じ実装
+（PSNR: `evaluation/metrics.py`、SSIM / D-SSIM: `training/losses.py`、
+LPIPS: `LPIPSMetric` = VGG）を使うので、同じ画像なら同じ数値になる。
+MS-SSIM だけは本体に実装が無いため torchmetrics を使う（`evaluation/metrics.py: ms_ssim`）。
+`scripts/warmstart_iteration_sweep.py` もチェックポイントから `evaluate_camera_set` を
+呼ぶので同じ実装である。
 
-`eval/` は **既に書き出された画像だけがある場合**（他実装の出力との比較、
-学習を再実行せずに指標を測り直したい場合、4D の frame 系列を後段でまとめて
-測る場合）に使う補助経路である。SSIM 実装が本体 (`training/losses.py`) と
-torchmetrics で異なるため、**本体の数値と小数第 2〜3 位で一致しないことがある**。
-LPIPS backbone は本体に合わせて既定 `vgg`（`--lpips_net` で変更可）。
+**注意**: 旧 `eval/evaluate.py` は torchmetrics の SSIM を使っていたため、それで
+出した過去の `metrics.csv` / `per_frame.csv` とは SSIM / D-SSIM が小数第 2〜3 位で
+一致しない。新旧の CSV を混ぜて比較しないこと。
 
 ## 依存関係
 
 ```bash
-pip install -e ".[eval]"     # torchmetrics[image] + scikit-image
+pip install -e ".[eval]"     # torchmetrics[image] (MS-SSIM 用)
 ```
-
-torchmetrics が無い場合は scikit-image へフォールバックする（その場合
-MS-SSIM と LPIPS は `nan` になる）。
 
 ## 使い方
 
 ```bash
 # 1. test view を書き出す
-python scripts/render.py \
+python scripts/rendering/render_3d.py \
     --data data/nerf_synthetic/lego \
     --checkpoint output/3DGS/nerf_synthetic/lego/checkpoints/iteration_00030000.pt \
     --split test --render-backend cuda \
     --output output/3DGS/nerf_synthetic/lego/renders
 
 # 2. 評価
-python eval/evaluate.py \
+python scripts/evaluate.py \
     --dataset nerf_synthetic \
-    --render_dir output/3DGS/nerf_synthetic/lego/renders \
-    --gt_dir     data/nerf_synthetic/lego/test \
-    --output_csv output/3DGS/nerf_synthetic/lego/results/metrics.csv
+    --render-dir output/3DGS/nerf_synthetic/lego/renders \
+    --gt-dir     data/nerf_synthetic/lego/test \
+    --output-csv output/3DGS/nerf_synthetic/lego/results/metrics.csv
 
-# 3. 一括実行 + 集計
-bash eval/archive/run_all.sh
+# 3. 集計
 python eval/summarize.py --results_dir output
 ```
-
-環境変数 `BASE_RENDER` / `BASE_GT` / `OUTPUT_DIR` / `DEVICE` / `PYTHON` で
-`archive/run_all.sh` のパスを上書きできる。
 
 ## 実行スクリプトは `runs/` の 3 本
 
@@ -246,7 +243,7 @@ min/max に軸を合わせるとシーン本体が点に潰れるため、`index
 
 ## 画像の対応付け
 
-`render.py` は `image_name` の**ベース名のみ**をフラットに書き出す
+`render_3d.py` は `image_name` の**ベース名のみ**をフラットに書き出す
 （`evaluation/runner.py: render_camera_set`）。一方 GT はデータセット形式ごとに
 配置が異なる：
 
@@ -256,7 +253,7 @@ min/max に軸を合わせるとシーン本体が点に潰れるため、`index
 | COLMAP | `<scene>/images{,_2,_4}/` |
 | Blender (`data/` 直下) | `data/view_*.png` |
 
-そのため `collect_image_pairs` は「相対パス一致 → ベース名一致」の順で解決する。
+そのため `collect_image_pairs`（`evaluation/images.py`）は「相対パス一致 → ベース名一致」の順で解決する。
 NeRF Synthetic の `test/` に混在する `r_*_depth_*.png` / `r_*_normal_*.png` は
 GT 索引から除外する。
 
@@ -267,7 +264,7 @@ GT 索引から除外する。
   次フレームへ引き継ぐ方式で、HexPlane 時空間エンコーダも多頭変形デコーダも持たない。
   `dnerf` / `hypernerf` / `neu3d` の指標定義と論文値は**到達目標として**
   置いてあり、対応データも現時点で `data/` に存在しない。
-- **D-SSIM の定義**：本スクリプトは `1 - SSIM` を用いる。文献によっては
+- **D-SSIM の定義**：`1 - SSIM`（本体の `dssim_loss`）を用いる。文献によっては
   `(1 - SSIM) / 2` を指す。論文 Table 3 の値と比較する際は定義差に注意。
 - PSNR が完全一致で `+inf` になった画像は平均から除外する。
 
@@ -568,26 +565,27 @@ python eval/summarize_warmstart.py \
 
 ### フェーズ 3: 画質評価
 
-`scripts/render.py` はチェックポイント 1 つを取る設計なので、300 フレーム x
-2 アームには `eval/render_4d.py` を使う (同じ `render_camera_set` を 1 プロセスで回す)。
+`scripts/rendering/render_3d.py` はチェックポイント 1 つを取る設計なので、300 フレーム x
+2 アームには `scripts/rendering/render_4d.py` を使う (同じ `render_camera_set` を 1 プロセスで回す)。
 
 ```bash
-python eval/render_4d.py --run_dir output/4DGS/neu3d/coffee_martini/warmstart_neu3d_full \
+python scripts/rendering/render_4d.py --run_dir output/4DGS/neu3d/coffee_martini/warmstart_neu3d_full \
     --data_dir data/neu3d/coffee_martini/converted_4d \
     --out_dir  eval/renders/warmstart_full --split test
-python eval/evaluate.py --dataset neu3d \
-    --render_dir eval/renders/warmstart_full/renders \
-    --gt_dir     eval/renders/warmstart_full/gt \
-    --output_csv output/4DGS/neu3d/coffee_martini/warmstart_neu3d_full/results/metrics.csv --device cuda
+python scripts/evaluate.py --dataset neu3d \
+    --render-dir eval/renders/warmstart_full/renders \
+    --gt-dir     eval/renders/warmstart_full/gt \
+    --output-csv output/4DGS/neu3d/coffee_martini/warmstart_neu3d_full/results/metrics.csv \
+    --rgba-background black
 ```
 
 **GT をフラットに置いてはいけない**。300 フレームすべてが cam00/cam09/cam19 と
-同じ名前なので、evaluate.py のペア照合が stem に落ちて 300 候補となり
+同じ名前なので、scripts/evaluate.py のペア照合が stem に落ちて 300 候補となり
 「一意に定まらない」として全件スキップされる。render_4d.py は GT を
 `gt/frame_NNNN/camXX.png` とフレーム構造でミラーし、相対パス照合が
 効くようにしている。
 
-なお evaluate.py の neu3d プリセットが出すのは MS-SSIM ではなく **D-SSIM**。
+なお scripts/evaluate.py の neu3d プリセットが出すのは MS-SSIM ではなく **D-SSIM**。
 
 ## 100 フレーム warm-start 実験の結果（2,000 iter/frame）
 
@@ -619,7 +617,7 @@ frame 125-135 付近で OOM する見込みだったため、100 フレームで
 | cam19 | 21.195 / 25.223 | 0.183 / 0.146 | 0.295 / 0.298 |
 | 全体  | **23.579 / 25.051** | 0.152 / 0.137 | 0.259 / 0.284 |
 
-`evaluate.py` の neu3d プリセットが出すのは MS-SSIM ではなく **D-SSIM**。
+`scripts/evaluate.py` の neu3d プリセットが出すのは MS-SSIM ではなく **D-SSIM**。
 
 ### 結論: warm-start は学習損失を下げるが test 画質は劣化する
 

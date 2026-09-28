@@ -1,7 +1,7 @@
 """
 4DGS 評価結果 集計スクリプト
 
-eval/evaluate.py が出力した CSV を読み、データセット別にシーン一覧・平均・
+scripts/evaluate.py (画像モード) が出力した CSV を読み、データセット別にシーン一覧・平均・
 論文値を並べて表示する。
 
 ``output/<3DGS|4DGS>/<dataset>/[<scene>/][<run>/]results/<name>.csv`` を再帰的にたどり、

@@ -62,7 +62,7 @@
 |---|---|---|---|---|---|---|
 {{MILESTONE_ROWS}}
 
-画像ベース評価 (`eval/evaluate.py`、描画済み PNG 対 GT): {{IMAGE_EVAL}}
+画像ベース評価 (`scripts/evaluate.py` 画像モード、描画済み PNG 対 GT): {{IMAGE_EVAL}}
 
 学習経過:
 

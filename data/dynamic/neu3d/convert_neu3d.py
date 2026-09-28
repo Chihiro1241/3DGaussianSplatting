@@ -2,7 +2,7 @@
 data/convert_neu3d.py
 Neural 3D Video (Neu3D) 形式 -> 本体が読める形式への変換。
 
-本体の scripts/train.py / scripts/render.py / eval/evaluate.py には一切手を入れず、
+本体の scripts/train.py / scripts/rendering/render_3d.py / scripts/evaluate.py には一切手を入れず、
 データ側だけをこのリポジトリが読める形へ寄せるためのアダプタ。
 
 使い方:

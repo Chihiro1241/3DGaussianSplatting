@@ -55,8 +55,12 @@ python -m venv /tmp/plotenv && /tmp/plotenv/bin/pip install matplotlib
 | --- | --- |
 | `train.py` | 単一シーンの学習 |
 | `train_4d.py` | 動的シーンをフレームごとに学習（前フレームから warm-start） |
-| `render.py` | 学習済みチェックポイントからの描画 |
-| `evaluate.py` | PSNR / SSIM / LPIPS の評価 |
+| `rebuild_manifest_4d.py` | 4D ランの `frames_4d.json` を `frame_NNNN/checkpoints` から作り直す（再開すると前半が消えるため） |
+| `rendering/render_3d.py` | 学習済みチェックポイントからの描画 |
+| `rendering/render_4d.py` | 4D ラン（`frame_NNNN/` ごとのチェックポイント）を 1 プロセスで全フレーム描画 |
+| `rendering/make_video.py` | `render_4d.py` の連番 PNG をカメラごとの mp4 に |
+| `rendering/benchmark_fps.py` | チェックポイントの描画 FPS（ラスタライズ 1 回の時間）を実測 |
+| `evaluate.py` | PSNR / SSIM / D-SSIM / MS-SSIM / LPIPS の評価。`--checkpoint` でチェックポイントから、`--render-dir` で描画済み画像から |
 | `warmstart_iteration_sweep.py` | warm-start の 1 フレームあたり iteration 数を振って比較 |
 | `plot_warmstart_sweep.py` | 上の `results.csv` から図と飽和/ドリフト分析を生成 |
 | `run_paper_benchmark.py` | 全21シーンのベンチマーク実行 |

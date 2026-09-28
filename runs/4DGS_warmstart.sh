@@ -184,12 +184,12 @@ if want render; then
     echo "############################################################"
     # 再開していると frames_4d.json がその実行で回した分しか持たないので、
     # 描画前に必ず作り直す。
-    run_step python eval/rebuild_manifest_4d.py \
+    run_step python scripts/rebuild_manifest_4d.py \
         --run_dir "$RUN_DIR" --source_path "$DATA_DIR" \
         --frame_count "$END_FRAME" \
         || note_failure "manifest"
     run_step mkdir -p "$RENDER_DIR"
-    if run_step python eval/render_4d.py \
+    if run_step python scripts/rendering/render_4d.py \
         --run_dir "$RUN_DIR" --data_dir "$DATA_DIR" --out_dir "$RENDER_DIR" \
         --split test --render-backend "$RENDER_BACKEND" --end_frame "$END_FRAME"
     then
@@ -210,18 +210,14 @@ if want eval && [ "$RENDER_FAILED" = "0" ]; then
     echo "############################################################"
     run_step mkdir -p "$RESULTS_DIR"
     # neu3d は背景黒で学習しているので rgba_background も black に揃える。
-    run_step python eval/evaluate.py \
+    run_step python scripts/evaluate.py \
         --dataset neu3d \
-        --render_dir "$RENDER_DIR/renders" --gt_dir "$RENDER_DIR/gt" \
-        --output_csv "$RESULTS_DIR/metrics.csv" \
-        --json_out "$RESULTS_DIR/summary.json" \
-        --device cuda --rgba_background black \
+        --render-dir "$RENDER_DIR/renders" --gt-dir "$RENDER_DIR/gt" \
+        --output-csv "$RESULTS_DIR/metrics.csv" \
+        --json-out "$RESULTS_DIR/summary.json" \
+        --per-frame-csv "$RESULTS_DIR/per_frame.csv" --block 10 \
+        --device cuda --rgba-background black \
         || note_failure "eval"
-    run_step python eval/evaluate_per_frame.py \
-        --render_dir "$RENDER_DIR/renders" --gt_dir "$RENDER_DIR/gt" \
-        --output_csv "$RESULTS_DIR/per_frame.csv" \
-        --dataset neu3d --device cuda --rgba_background black --block 10 \
-        || note_failure "eval/per_frame"
     # warm-start はガウシアン数が単調に増えうる。増加の度合いはこの CSV でしか
     # 追えないので必ず残す (本スクリプトは増加を理由に中断はしない)。
     run_step python eval/gaussian_count_trend.py \
@@ -236,11 +232,10 @@ if want video && [ "$RENDER_FAILED" = "0" ]; then
     echo "############################################################"
     echo "# 動画  $(date '+%m-%d %H:%M')"
     echo "############################################################"
-    # カメラごとに解像度が数 px 違うので、縦積みは make_videos_4d.py 側で
-    # 幅を揃えてから積んでいる。ffmpeg は 3dgs env のものを使う。
+    # カメラごとに 1 本 (<camera>.mp4)。ffmpeg は 3dgs env のものを使う。
     run_step mkdir -p "$VIDEO_DIR"
-    run_step python eval/make_videos_4d.py \
-        --render_root "$RENDER_DIR" --out_dir "$VIDEO_DIR" --fps 30 --crf 18 \
+    run_step python scripts/rendering/make_video.py \
+        --render-root "$RENDER_DIR" --out-dir "$VIDEO_DIR" --fps 30 --crf 18 \
         || note_failure "video"
 fi
 
