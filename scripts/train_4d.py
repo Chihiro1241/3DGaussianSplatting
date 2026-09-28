@@ -158,7 +158,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=0,
         metavar="N",
         help="record Gaussian centres, opacities, and count every N iterations "
-        "into <output>/snapshots for eval/snapshot_viewer.py (0 disables)",
+        "into <output>/snapshots for eval/visualization/snapshot_viewer.py (0 disables)",
     )
     parser.add_argument(
         "--snapshot-iterations",

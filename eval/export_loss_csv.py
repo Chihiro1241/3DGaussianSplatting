@@ -1,34 +1,27 @@
 """
-学習中の損失を CSV に記録するロガー。
+eval/export_loss_csv.py
+学習ログ ``train_log.jsonl`` の損失を、フレームごとの CSV へ書き出す。
 
-本体の Trainer は既に ``<run>/train_log.jsonl`` へ 100 iter ごとに
+本体の Trainer は ``<run>/train_log.jsonl`` へ 100 iter ごとに
 ``loss_total`` / ``loss_l1`` / ``loss_dssim`` / ``psnr`` などを出力している
-(src/gaussian_splatting/training/trainer.py)。そのため通常は本モジュールを
-学習ループへ差し込む必要はなく、既存ログを CSV へ変換すれば足りる。
-scripts/train.py も scripts/train_4d.py も変更しないのはこのため。
+(src/gaussian_splatting/training/trainer.py)。本スクリプトはそれを
+``plot_loss.py`` / ``summarize_warmstart.py`` が読む CSV へ変換するだけで、
+学習には関与しない。
 
-用途は 2 つ:
+使い方::
 
-1. 既存の train_log.jsonl から CSV を作る (推奨経路)::
+    python eval/export_loss_csv.py \
+        --run_dir output/4DGS/dnerf/lego/experiments/warmstart \
+        --out_dir output/4DGS/dnerf/lego/experiments/warmstart/loss_logs
 
-       python eval/loss_logger.py \
-           --run_dir output/4DGS/dnerf/lego/experiments/warmstart \
-           --out_dir output/4DGS/dnerf/lego/experiments/warmstart/loss_logs
-
-   ``--run_dir`` が frames_4d.json を持つ 4D ラン root なら、
-   frame_0001/ ... を走査して frame_0000.csv ... を書き出す。
-   単一シーンの run ディレクトリなら frame_0000.csv を 1 本だけ書く。
-
-2. 任意の呼び出し元から逐次記録する (LossLogger API)::
-
-       logger = LossLogger(out_dir="output/4DGS/dnerf/lego/experiments/warmstart/loss_logs", frame=0)
-       logger.log(iteration=100, loss=0.042)
-       logger.close()
+``--run_dir`` が frames_4d.json を持つ 4D ラン root なら、
+frame_0001/ ... を走査して frame_0000.csv ... を書き出す。
+単一シーンの run ディレクトリなら frame_0000.csv を 1 本だけ書く。
 
 出力: ``<out_dir>/frame_{:04d}.csv`` (iter, loss の 2 列)。
 シーンは出力パスの階層で表すので (``output/4DGS/neu3d/<scene>/loss_logs/<variant>/``)、
 ``--out_dir`` はそのまま書き出し先になる。``--scene`` は進捗表示のラベルだけに使う。
-``close()`` は最終行へ ``*** LAST100_MEAN ***`` 行を追記する。この行の loss は
+最終行には ``*** LAST100_MEAN ***`` 行を追記する。この行の loss は
 「最後の 100 iteration 区間の損失平均」で、記録間隔が 100 iter の場合は
 最終記録点そのものになるため、実際には最後に記録された点から遡って
 100 iteration 分に入るサンプルの平均を取る。
@@ -55,40 +48,16 @@ def _mean_last_window(rows: list[tuple[int, float]], window: int = 100) -> float
     return sum(selected) / len(selected)
 
 
-class LossLogger:
-    """1 フレーム分の (iter, loss) を CSV へ記録する。"""
-
-    def __init__(self, out_dir: str | Path, frame: int) -> None:
-        if not isinstance(frame, int) or frame < 0:
-            raise ValueError("frame must be a non-negative integer")
-        self.path = Path(out_dir) / f"frame_{frame:04d}.csv"
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._rows: list[tuple[int, float]] = []
-        self._closed = False
-
-    def log(self, iteration: int, loss: float) -> None:
-        if self._closed:
-            raise RuntimeError("logger is already closed")
-        self._rows.append((int(iteration), float(loss)))
-
-    def close(self) -> Path:
-        """CSV を書き出し、最終行にサマリーを追記する。"""
-        if self._closed:
-            return self.path
-        with self.path.open("w", newline="", encoding="utf-8") as stream:
-            writer = csv.writer(stream)
-            writer.writerow(["iter", "loss"])
-            for iteration, loss in self._rows:
-                writer.writerow([iteration, f"{loss:.8g}"])
-            writer.writerow([SUMMARY_MARKER, f"{_mean_last_window(self._rows):.8g}"])
-        self._closed = True
-        return self.path
-
-    def __enter__(self) -> "LossLogger":
-        return self
-
-    def __exit__(self, *_: object) -> None:
-        self.close()
+def write_loss_csv(path: Path, rows: list[tuple[int, float]]) -> Path:
+    """(iter, loss) を書き、最終行にサマリーを追記する。"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="", encoding="utf-8") as stream:
+        writer = csv.writer(stream)
+        writer.writerow(["iter", "loss"])
+        for iteration, loss in rows:
+            writer.writerow([iteration, f"{loss:.8g}"])
+        writer.writerow([SUMMARY_MARKER, f"{_mean_last_window(rows):.8g}"])
+    return path
 
 
 def rows_from_train_log(path: Path, loss_key: str = "loss_total") -> list[tuple[int, float]]:
@@ -133,10 +102,7 @@ def convert(run_dir: Path, out_dir: Path,
         if not rows:
             print(f"  [スキップ] {log_path} に {loss_key} がありません")
             continue
-        logger = LossLogger(out_dir, index)
-        for iteration, loss in rows:
-            logger.log(iteration, loss)
-        written.append(logger.close())
+        written.append(write_loss_csv(out_dir / f"frame_{index:04d}.csv", rows))
         print(f"  frame_{index:04d}.csv  ({len(rows)} 点, "
               f"最終100iter平均 {_mean_last_window(rows):.6g})")
     return written

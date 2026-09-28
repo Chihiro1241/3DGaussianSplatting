@@ -1,12 +1,12 @@
 """フレーム × iteration の2軸でガウシアンの学習過程を再生するビューワー。
 
-``--snapshot-interval`` 付きの学習、または ``eval/extract_snapshots.py`` が
+``--snapshot-interval`` 付きの学習、または ``eval/visualization/extract_snapshots.py`` が
 書き出した ``<run>/snapshots/*.npz`` を読み、中心座標を3D散布図として、
 不透明度を色として、ガウシアン個数を折れ線として表示する。
 
 起動::
 
-    streamlit run eval/snapshot_viewer.py -- --run output/4DGS/neu3d/coffee_martini/warmstart_neu3d_trial
+    streamlit run eval/visualization/snapshot_viewer.py -- --run output/4DGS/neu3d/coffee_martini/warmstart_neu3d_trial
 
 ``--run`` は省略でき、その場合はサイドバーの入力欄からパスを指定する。
 
@@ -32,7 +32,7 @@ import numpy as np
 import plotly.graph_objects as go
 import streamlit as st
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT / "src") not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT / "src"))
 
@@ -390,7 +390,7 @@ def main() -> None:
         st.info(
             "サイドバーに run のパスを入力してください。\n\n"
             "スナップショットが未生成なら、学習時に `--snapshot-interval 500` を付けるか、"
-            "既存 run に対して `python eval/extract_snapshots.py --run <run>` を実行します。"
+            "既存 run に対して `python eval/visualization/extract_snapshots.py --run <run>` を実行します。"
         )
         return
 
@@ -493,7 +493,7 @@ def main() -> None:
     if lock_axes and bounds is None:
         st.warning(
             "スナップショットに座標範囲が記録されていないため軸を固定できません。"
-            "`eval/extract_snapshots.py --run <run> --overwrite` で作り直してください。"
+            "`eval/visualization/extract_snapshots.py --run <run> --overwrite` で作り直してください。"
         )
 
     directories = {frame: catalogue[frame]["directory"] for frame in frames}

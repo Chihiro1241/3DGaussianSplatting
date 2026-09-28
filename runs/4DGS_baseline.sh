@@ -130,7 +130,7 @@ if want train; then
     if [ "$START" -gt "$END_FRAME" ]; then
         echo "frame ${END_FRAME} まで完了済み。学習をスキップします。"
     else
-        run_step python eval/warmstart_trainer.py \
+        run_step python scripts/warmstart_trainer.py \
             --source_path "$DATA_DIR" \
             --output_dir  "$RUN_DIR" \
             --config      "$CONFIG" \
@@ -222,7 +222,7 @@ if want viz; then
     for frame in $VIZ_FRAMES; do
         printf -v padded "%04d" "$frame"
         if [ -d "$RUN_DIR/frame_${padded}/checkpoints" ] || [ "$DRY_RUN" = "1" ]; then
-            if run_step python eval/visualize_gaussians.py \
+            if run_step python eval/visualization/visualize_gaussians.py \
                 --ckpt_dir "$RUN_DIR/frame_${padded}" \
                 --out_dir "$VIZ_DIR" --frame "$frame"
             then
@@ -233,7 +233,7 @@ if want viz; then
         fi
     done
     if [ -n "$viz_done" ]; then
-        run_step python eval/gaussian_viz_report.py --viz_dir "$VIZ_DIR" \
+        run_step python eval/visualization/gaussian_viz_report.py --viz_dir "$VIZ_DIR" \
             --frames $viz_done --title "Gaussian 可視化 — ${TAG}" \
             || note_failure "viz/report"
     fi

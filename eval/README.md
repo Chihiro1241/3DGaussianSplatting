@@ -25,7 +25,7 @@
 
 | ツール | 用途 | 主な入力 → 出力 | 自動 |
 |---|---|---|---|
-| `warmstart_trainer.py` | 4D の warm-start 学習ドライバ | `--source_path --config` → `--output_dir` | ● |
+| `scripts/warmstart_trainer.py` | 4D の warm-start 学習ドライバ | `--source_path --config` → `--output_dir` | ● |
 | `scripts/warmstart_iteration_sweep.py` | warm-start の iteration 数を振って held-out 評価まで通す | `--data --frame1-checkpoint` → `--output` (`results.csv`) | ○ |
 | `scripts/rendering/render_4d.py` | 4D ランを 1 プロセスで全フレーム描画 | `--run_dir --data_dir` → `--out_dir` (`renders/` `gt/`) | ● |
 | `scripts/rendering/benchmark_fps.py` | 描画 FPS の実測 | `--run_dir --data_dir` → 標準出力 | ○ |
@@ -37,7 +37,7 @@
 |---|---|---|---|
 | `scripts/evaluate.py` (画像モード) | 画像対から PSNR/SSIM/D-SSIM/MS-SSIM/LPIPS | `--render-dir --gt-dir` → `--output-csv` (`metrics.csv`)、`--json-out` (`summary.json`、カメラ別)、`--per-frame-csv` (`per_frame.csv`) | ● |
 | `gaussian_count_trend.py` | ガウシアン数・時間・VRAM の推移 | `--run_dir` → `--output_csv` (`gaussian_counts.csv`) | ● |
-| `loss_logger.py` | `train_log.jsonl` を損失 CSV へ変換 | `--run_dir` → `--out_dir` (`loss_logs/`) | ○ |
+| `export_loss_csv.py` | `train_log.jsonl` を損失 CSV へ変換 | `--run_dir` → `--out_dir` (`loss_logs/`) | ○ |
 
 ### 4. 集計・比較・レポート
 
@@ -53,11 +53,11 @@
 
 | ツール | 用途 | 主な入力 → 出力 | 自動 |
 |---|---|---|---|
-| `visualize_gaussians.py` | チェックポイントのガウシアン分布を投影 | `--ckpt_dir` → `--out_dir` (PNG + HTML) | ● |
-| `gaussian_viz_report.py` | 上の出力を 1 枚の HTML にまとめる | `--viz_dir` → `--out` | ● |
-| `plot_loss.py` | 損失曲線の比較 HTML | `--log_dir --baseline_dir` → `--out_html` | ○ |
-| `extract_snapshots.py` | 学習過程のスナップショット (npz) を抽出 | `--run` → npz | ○ |
-| `snapshot_viewer.py` | フレーム × iteration の 2 軸ビューワー (streamlit) | `--run` → ブラウザ | ○ |
+| `visualization/visualize_gaussians.py` | チェックポイントのガウシアン分布を投影 | `--ckpt_dir` → `--out_dir` (PNG + HTML) | ● |
+| `visualization/gaussian_viz_report.py` | 上の出力を 1 枚の HTML にまとめる | `--viz_dir` → `--out` | ● |
+| `plot/plot_loss.py` | 損失曲線の比較 HTML | `--log_dir --baseline_dir` → `--out_html` | ○ |
+| `visualization/extract_snapshots.py` | 学習過程のスナップショット (npz) を抽出 | `--run` → npz | ○ |
+| `visualization/snapshot_viewer.py` | フレーム × iteration の 2 軸ビューワー (streamlit) | `--run` → ブラウザ | ○ |
 | `scripts/rendering/make_video.py` | 描画結果をカメラごとの mp4 に（単一視点のみ） | `--render-root` → `--out-dir` (`<camera>.mp4`) | ● |
 
 `archive/` には退役したシェルスクリプトが置いてある（`run_all.sh` ほか）。
@@ -75,6 +75,11 @@
 | `eval/evaluate.py` / `eval/evaluate_per_frame.py` | `scripts/evaluate.py` の画像モード（指標は `src` の実装を使う） |
 | `eval/render_4d.py` | `scripts/rendering/render_4d.py`（移動のみ） |
 | `eval/make_videos_4d.py` / `eval/make_compare_runs_video.py` | `scripts/rendering/make_video.py`（単一視点の動画のみ。GT 比較・ラン比較・縦積みは廃止） |
+| `eval/benchmark_fps.py` | `scripts/rendering/benchmark_fps.py`（移動のみ） |
+| `eval/rebuild_manifest_4d.py` | `scripts/rebuild_manifest_4d.py`（移動のみ） |
+| `eval/warmstart_trainer.py` | `scripts/warmstart_trainer.py`（移動のみ） |
+| `eval/loss_logger.py` | `eval/export_loss_csv.py`（改名。未使用の `LossLogger` クラスを削除、出力は同一） |
+| 可視化 4 本 / `plot_loss.py` | `eval/visualization/` / `eval/plot/` へ移動のみ |
 
 ## 評価の入口は `scripts/evaluate.py` の 1 本
 
@@ -147,8 +152,8 @@ python eval/summarize.py --results_dir output
 
 | ファイル | 役割 |
 |---|---|
-| `extract_snapshots.py` | 既存の `checkpoints/iteration_*.pt` から `snapshots/*.npz` を抽出 |
-| `snapshot_viewer.py` | Streamlit + Plotly のビューワー本体 |
+| `visualization/extract_snapshots.py` | 既存の `checkpoints/iteration_*.pt` から `snapshots/*.npz` を抽出 |
+| `visualization/snapshot_viewer.py` | Streamlit + Plotly のビューワー本体 |
 
 ### 依存関係
 
@@ -185,8 +190,8 @@ python scripts/train_4d.py \
 run は、チェックポイントから抽出できる。再学習は不要。
 
 ```bash
-python eval/extract_snapshots.py --run output/4DGS/neu3d/coffee_martini/warmstart_neu3d_trial
-python eval/extract_snapshots.py --run output/4DGS/neu3d/coffee_martini/neu3d_coffee_martini_frame1 --stride 2
+python eval/visualization/extract_snapshots.py --run output/4DGS/neu3d/coffee_martini/warmstart_neu3d_trial
+python eval/visualization/extract_snapshots.py --run output/4DGS/neu3d/coffee_martini/neu3d_coffee_martini_frame1 --stride 2
 ```
 
 `--run` は単一シーンの run でも 4D run root でもよい（`frame_*/` を自動で走査）。
@@ -195,7 +200,7 @@ python eval/extract_snapshots.py --run output/4DGS/neu3d/coffee_martini/neu3d_co
 ### ビューワーの起動
 
 ```bash
-streamlit run eval/snapshot_viewer.py -- --run output/4DGS/neu3d/coffee_martini/warmstart_neu3d_trial
+streamlit run eval/visualization/snapshot_viewer.py -- --run output/4DGS/neu3d/coffee_martini/warmstart_neu3d_trial
 ```
 
 `--run` の前の `--` は必須（Streamlit 自身の引数と区別するため）。省略した場合は
@@ -422,12 +427,12 @@ converted_4d/
 実装済み。**ガウシアンパラメータのみ引き継ぎ、optimizer の Adam モーメント・
 位置 LR スケジュール・ADC 統計は毎フレーム作り直す**
 (`build_frame_training_state`、検査は `assert_frame_state_is_reset`)。
-よって新しい学習ループは書かず、`eval/warmstart_trainer.py` は既存の入口を
+よって新しい学習ループは書かず、`scripts/warmstart_trainer.py` は既存の入口を
 呼ぶだけのドライバにしてある。`scripts/train.py` も `scripts/train_4d.py` も未変更。
 
 ```bash
 # warm-start あり
-python eval/warmstart_trainer.py \
+python scripts/warmstart_trainer.py \
     --source_path data/neu3d/coffee_martini/converted_4d \
     --output_dir  output/4DGS/neu3d/coffee_martini/warmstart_neu3d_trial \
     --config      configs/neu3d/trial_5000.yaml \
@@ -435,7 +440,7 @@ python eval/warmstart_trainer.py \
     --image-directory images --render-backend cuda
 
 # baseline (フレームごとに独立学習)
-python eval/warmstart_trainer.py ... --no_warmstart
+python scripts/warmstart_trainer.py ... --no_warmstart
 ```
 
 `scripts/train_4d.py --subsequent-frame-iterations` は **2 フレーム目以降にしか効かない**
@@ -450,11 +455,11 @@ python eval/warmstart_trainer.py ... --no_warmstart
 ### 損失曲線
 
 ```bash
-python eval/loss_logger.py --run_dir output/4DGS/neu3d/coffee_martini/warmstart_neu3d_trial \
+python eval/export_loss_csv.py --run_dir output/4DGS/neu3d/coffee_martini/warmstart_neu3d_trial \
     --out_dir output/4DGS/neu3d/coffee_martini/warmstart_neu3d_trial/loss_logs
-python eval/loss_logger.py --run_dir output/4DGS/neu3d/coffee_martini/baseline_neu3d_trial \
+python eval/export_loss_csv.py --run_dir output/4DGS/neu3d/coffee_martini/baseline_neu3d_trial \
     --out_dir output/4DGS/neu3d/coffee_martini/baseline_neu3d_trial/loss_logs
-python eval/plot_loss.py \
+python eval/plot/plot_loss.py \
     --log_dir      output/4DGS/neu3d/coffee_martini/warmstart_neu3d_trial/loss_logs \
     --baseline_dir output/4DGS/neu3d/coffee_martini/baseline_neu3d_trial/loss_logs \
     --out_html     output/4DGS/neu3d/coffee_martini/loss_plots/neu3d_coffee_martini_trial.html
@@ -494,7 +499,7 @@ checkpoint_interval を 2000 にしたのは 1 フレーム 2 個だと 600 フ�
 
 ```bash
 # warm-start あり (約 7-8 時間)
-python eval/warmstart_trainer.py \
+python scripts/warmstart_trainer.py \
     --source_path data/neu3d/coffee_martini/converted_4d \
     --output_dir  output/4DGS/neu3d/coffee_martini/warmstart_neu3d_full \
     --config      configs/neu3d/warmstart_2000.yaml \
@@ -503,7 +508,7 @@ python eval/warmstart_trainer.py \
     --disable-training-evaluation
 
 # baseline (約 3 時間)
-python eval/warmstart_trainer.py ... --no_warmstart \
+python scripts/warmstart_trainer.py ... --no_warmstart \
     --output_dir output/4DGS/neu3d/coffee_martini/baseline_neu3d_full
 ```
 
@@ -519,7 +524,7 @@ done={int(r['frame']) for r in d['frames'] if r['status']=='COMPLETED'}
 for p in sorted(Path('output/4DGS/neu3d/coffee_martini/warmstart_neu3d_full').glob('frame_*')):
     if int(p.name.split('_')[1]) not in done: shutil.rmtree(p)
 "
-python eval/warmstart_trainer.py ... \
+python scripts/warmstart_trainer.py ... \
     --start_frame 48 \
     --carry_over_checkpoint output/4DGS/neu3d/coffee_martini/warmstart_neu3d_full/frame_0047/checkpoints/latest.pt
 ```
@@ -548,11 +553,11 @@ Gaussians` になっていることを必ず確認すること。
 ### フェーズ 2: 損失集計
 
 ```bash
-python eval/loss_logger.py --run_dir output/4DGS/neu3d/coffee_martini/warmstart_neu3d_full \
+python eval/export_loss_csv.py --run_dir output/4DGS/neu3d/coffee_martini/warmstart_neu3d_full \
     --out_dir output/4DGS/neu3d/coffee_martini/warmstart_neu3d_full/loss_logs
-python eval/loss_logger.py --run_dir output/4DGS/neu3d/coffee_martini/baseline_neu3d_full \
+python eval/export_loss_csv.py --run_dir output/4DGS/neu3d/coffee_martini/baseline_neu3d_full \
     --out_dir output/4DGS/neu3d/coffee_martini/baseline_neu3d_full/loss_logs
-python eval/plot_loss.py \
+python eval/plot/plot_loss.py \
     --log_dir      output/4DGS/neu3d/coffee_martini/warmstart_neu3d_full/loss_logs \
     --baseline_dir output/4DGS/neu3d/coffee_martini/baseline_neu3d_full/loss_logs \
     --out_html     output/4DGS/neu3d/coffee_martini/loss_plots/neu3d_coffee_martini_full.html

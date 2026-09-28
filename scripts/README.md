@@ -55,6 +55,7 @@ python -m venv /tmp/plotenv && /tmp/plotenv/bin/pip install matplotlib
 | --- | --- |
 | `train.py` | 単一シーンの学習 |
 | `train_4d.py` | 動的シーンをフレームごとに学習（前フレームから warm-start） |
+| `warmstart_trainer.py` | warm-start あり（`train_4d.py`）/ なし（`train.py` をフレームごと）を同条件で回すドライバ。`runs/4DGS_*.sh` の学習段 |
 | `rebuild_manifest_4d.py` | 4D ランの `frames_4d.json` を `frame_NNNN/checkpoints` から作り直す（再開すると前半が消えるため） |
 | `rendering/render_3d.py` | 学習済みチェックポイントからの描画 |
 | `rendering/render_4d.py` | 4D ラン（`frame_NNNN/` ごとのチェックポイント）を 1 プロセスで全フレーム描画 |

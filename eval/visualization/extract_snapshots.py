@@ -1,7 +1,7 @@
 """既存の学習済みチェックポイントから可視化用スナップショットを抽出する。
 
 学習時に ``--snapshot-interval`` を付け忘れた run や、すでに完了している
-``output/`` 配下の run を、再学習なしで ``eval/snapshot_viewer.py`` にかける
+``output/`` 配下の run を、再学習なしで ``eval/visualization/snapshot_viewer.py`` にかける
 ための補助スクリプト。``checkpoints/iteration_*.pt`` を走査し、中心座標と
 不透明度だけを取り出して ``snapshots/iteration_*.npz`` を書き出す。
 
@@ -12,10 +12,10 @@ Config の再構築や model の再構築は行わない。
 使い方::
 
     # 単一シーンの run
-    python eval/extract_snapshots.py --run output/4DGS/neu3d/coffee_martini/neu3d_coffee_martini_frame1
+    python eval/visualization/extract_snapshots.py --run output/4DGS/neu3d/coffee_martini/neu3d_coffee_martini_frame1
 
     # 4D run root (frame_0001/ ... を自動で走査)
-    python eval/extract_snapshots.py --run output/4DGS/neu3d/coffee_martini/warmstart_neu3d_trial
+    python eval/visualization/extract_snapshots.py --run output/4DGS/neu3d/coffee_martini/warmstart_neu3d_trial
 
 ``latest.pt`` / ``best.pt`` / ``recovery.pt`` は番号付きチェックポイントの
 複製または別系統なので既定では無視する。
@@ -30,7 +30,7 @@ from pathlib import Path
 
 import torch
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT / "src") not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT / "src"))
 
@@ -196,7 +196,7 @@ def _write_index(
             "frame": frame,
             "interval": 0,
             "max_points": None,
-            "source": "eval/extract_snapshots.py",
+            "source": "eval/visualization/extract_snapshots.py",
             "snapshots": [merged[key] for key in sorted(merged)],
         },
     )
@@ -223,7 +223,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"\n{len(runs)} run から {total} スナップショットを書き出しました。")
     print(
         "ビューワ: "
-        f"streamlit run eval/snapshot_viewer.py -- --run {args.run}"
+        f"streamlit run eval/visualization/snapshot_viewer.py -- --run {args.run}"
     )
     return 0
 

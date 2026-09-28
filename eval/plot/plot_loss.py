@@ -3,12 +3,12 @@
 
 使い方:
     # warm-start ありのみ
-    python eval/plot_loss.py \
+    python eval/plot/plot_loss.py \
         --log_dir  output/4DGS/dnerf/lego/experiments/warmstart/loss_logs \
         --out_html output/4DGS/dnerf/lego/loss_plots/lego.html
 
     # warm-start あり vs なし
-    python eval/plot_loss.py \
+    python eval/plot/plot_loss.py \
         --log_dir      output/4DGS/dnerf/lego/experiments/warmstart/loss_logs \
         --baseline_dir output/4DGS/dnerf/lego/experiments/baseline/loss_logs \
         --out_html     output/4DGS/dnerf/lego/loss_plots/lego_compare.html
