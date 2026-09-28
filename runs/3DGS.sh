@@ -22,7 +22,7 @@
 # 一括ベンチマークとの違いは、任意のシーンだけを回せることと、描画と
 # 画像ベース評価まで面倒を見ること。
 #
-# 旧スクリプト (run_3dgs_static.sh ほか) は eval/archive/ に退避してある。
+# 旧スクリプト (run_3dgs_static.sh ほか) は削除した (git show d8d4dee:eval/archive/run_3dgs_static.sh で読める)。
 
 set -uo pipefail
 

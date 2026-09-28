@@ -10,7 +10,6 @@ eval/
 ├── plot/           学習ログを読んで推移の図を出す (plot_loss / plot_gaussian_count。CSV も出せる)
 ├── report/         ラン 1 本の eval.md を生成 (make_eval_report.py + templates/)
 ├── visualization/  ガウシアン分布の投影・学習過程ビューワー
-└── archive/        退役したシェルスクリプト (過去の実行記録)
 ```
 
 ## ツール索引
@@ -64,8 +63,9 @@ eval/
 | `visualization/snapshot_viewer.py` | フレーム × iteration の 2 軸ビューワー (streamlit) | `--run` → ブラウザ | ○ |
 | `scripts/rendering/make_video.py` | 描画結果をカメラごとの mp4 に（単一視点のみ） | `--render-root` → `--out-dir` (`<camera>.mp4`) | ● |
 
-`archive/` には退役したシェルスクリプトが置いてある（`run_all.sh` ほか）。
-実行経路は `runs/` に移したので、過去の実行記録としてのみ残している。
+退役したシェルスクリプト（旧 `eval/archive/` の `run_all.sh` ほか）は削除した。
+実行経路は `runs/` に移してある。中身は git の履歴から読める
+（例: `git show d8d4dee:eval/archive/run_all.sh`）。
 
 ### 統合の履歴
 
@@ -141,7 +141,7 @@ python scripts/evaluate.py \
 ## 実行スクリプトは `runs/` の 3 本
 
 学習から評価までの通し実行は、`runs/` の次の 3 本に集約した。
-`eval/` にあったシェルスクリプトは `eval/archive/` へ退避してある（削除はしていない）。
+`eval/` にあったシェルスクリプトは削除した（git の履歴から読める。上記参照）。
 
 | スクリプト | 用途 |
 |---|---|

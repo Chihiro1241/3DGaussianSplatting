@@ -43,7 +43,7 @@
 #     既定の white のままだと PSNR が不当に下がる。
 #   * 再開すると frames_4d.json が前半を失うため、描画前に必ず作り直す。
 #
-# 旧スクリプト (run_full_neu3d_100.sh ほか) は eval/archive/ に退避してある。
+# 旧スクリプト (run_full_neu3d_100.sh ほか) は削除した (git show d8d4dee:eval/archive/run_full_neu3d_100.sh で読める)。
 
 set -uo pipefail
 
