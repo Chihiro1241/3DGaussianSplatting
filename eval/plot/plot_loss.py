@@ -29,8 +29,7 @@ run ディレクトリ (``train_log.jsonl`` を直下に持つ) でもよい。`
 ``--loss_key`` で描く値を選ぶ (既定 loss_total)。ランごとに色を分け、同じランの
 フレームは同じ色で描く。表示/非表示はラン単位で切り替えられる。
 
-CSV は ``<dir>/frame_NNNN.csv`` (iter と値の 2 列)。最終行に ``*** LAST100_MEAN ***``
-行 (最後に記録された点から遡って 100 iteration 分の平均) を追記する。
+CSV は ``<dir>/frame_NNNN.csv`` (iter と値の 2 列)。
 
 出力の HTML は単一の自己完結ファイル。Chart.js だけ CDN から読む。
 """
@@ -49,7 +48,6 @@ CHART_JS = "https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.
 LOSS_KEYS = ("loss_total", "loss_l1", "loss_dssim", "psnr")
 # 値が大きいほど良いもの。収束 iter (初期値の 10% へ落ちた iteration) は定義できず、Y 軸も線形にする。
 HIGHER_IS_BETTER = {"psnr"}
-SUMMARY_MARKER = "*** LAST100_MEAN ***"
 
 
 # ------------------------------------------------------------ 学習ログの読み込み
@@ -79,18 +77,6 @@ def rows_from_train_log(path: Path, loss_key: str) -> list[tuple[int, float]]:
             rows.append((int(record["iteration"]), float(record[loss_key])))
     rows.sort(key=lambda item: item[0])
     return rows
-
-
-def mean_last_window(rows: list[tuple[int, float]], window: int = 100) -> float:
-    """最終 iteration から遡って ``window`` iteration 分の平均。
-
-    記録間隔が 100 iter だと最終記録点 1 つだけになるが、それで正しい。
-    """
-    if not rows:
-        return float("nan")
-    last_iteration = rows[-1][0]
-    selected = [value for it, value in rows if it > last_iteration - window] or [rows[-1][1]]
-    return sum(selected) / len(selected)
 
 
 def convergence_iteration(iters: list[int], losses: list[float],
@@ -127,7 +113,6 @@ def load_series(run_dir: Path, loss_key: str, frames: set[int] | None = None) ->
             "rows": rows,
             "iters": iters,
             "losses": values,
-            "final": mean_last_window(rows),
             "converged_iter": None if loss_key in HIGHER_IS_BETTER
                               else convergence_iteration(iters, values),
         })
@@ -142,7 +127,6 @@ def write_csv(series: list[dict], out_dir: Path, loss_key: str) -> None:
             writer.writerow(["iter", loss_key])
             for iteration, value in item["rows"]:
                 writer.writerow([iteration, f"{value:.8g}"])
-            writer.writerow([SUMMARY_MARKER, f"{item['final']:.8g}"])
 
 
 # ---------------------------------------------------------------------- 図
@@ -181,32 +165,32 @@ def build_html(runs: list[tuple[str, list[dict]]], title: str, loss_key: str) ->
 
     frame_names = sorted({item["name"] for _, series in runs for item in series})
     by_run = [{item["name"]: item for item in series} for _, series in runs]
-    bar_datasets = [{
-        "label": label,
-        "data": [
-            None if (item := lookup.get(name)) is None or math.isnan(item["final"]) else item["final"]
-            for name in frame_names
-        ],
-        "backgroundColor": _run_color(i, total, 0.85),
-    } for i, ((label, _), lookup) in enumerate(zip(runs, by_run))]
-
     rows = []
     for name in frame_names:
         cells = [f"<td>{html.escape(name)}</td>"]
         for lookup in by_run:
             item = lookup.get(name)
-            cells += [
-                f"<td class='num'>{_fmt(item['final']) if item else '&mdash;'}</td>",
-                f"<td class='num'>{_fmt(item['converged_iter'], 0) if item else '&mdash;'}</td>",
-            ]
+            cells.append(f"<td class='num'>{_fmt(item['converged_iter'], 0) if item else '&mdash;'}</td>")
         rows.append("<tr>" + "".join(cells) + "</tr>")
     header = ["フレーム"]
     for label, _ in runs:
-        header += [f"最終 100 iter 平均 ({html.escape(label)})", f"収束 iter ({html.escape(label)})"]
+        header.append(f"収束 iter ({html.escape(label)})")
+
+    # 収束 iter を定義できない値 (psnr) では、表は全部「—」になるので出さない。
+    table = "" if loss_key in HIGHER_IS_BETTER else f"""<div class="card">
+  <h2 style="margin-top:0">フレーム別サマリー</h2>
+  <div class="tablewrap"><table>
+    <thead><tr>{"".join(f"<th>{h}</th>" for h in header)}</tr></thead>
+    <tbody>{"".join(rows)}</tbody>
+  </table></div>
+  <div class="note">「収束 iter」は損失がその run の初期値の 10% 以下へ最初に落ちた iteration。
+  初期損失が違う run 同士 (例: warm-start とそうでないもの) では、この値は run 内の相対的な
+  下げ幅を表すだけで、run 間の絶対比較には使えない。速度の比較は上の曲線そのものを見ること。</div>
+</div>"""
 
     payload = json.dumps(
         {"curves": curve_datasets, "runs": run_legend,
-         "barLabels": frame_names, "bars": bar_datasets, "key": loss_key,
+         "key": loss_key,
          "log": loss_key not in HIGHER_IS_BETTER},
         ensure_ascii=False,
     )
@@ -240,32 +224,17 @@ def build_html(runs: list[tuple[str, list[dict]]], title: str, loss_key: str) ->
  .tablewrap {{ overflow-x:auto; }}
 </style></head><body>
 <h1>{html.escape(title)}</h1>
-<div class="sub">{html.escape(loss_key)} vs iteration (各フレームの train_log.jsonl)。棒グラフと表の値は最終 100 iteration の平均。</div>
+<div class="sub">{html.escape(loss_key)} vs iteration (各フレームの train_log.jsonl)。</div>
 
 <div class="card">
-  <h2 style="margin-top:0">グラフ 1: {html.escape(loss_key)} の推移</h2>
+  <h2 style="margin-top:0">{html.escape(loss_key)} の推移</h2>
   <div class="wrap"><canvas id="curves"></canvas></div>
   <div class="btns"><button id="all">全表示</button><button id="none">全非表示</button></div>
   <div class="toggles" id="toggles"></div>
   <div class="note">{"Y 軸は対数スケール。" if loss_key not in HIGHER_IS_BETTER else ""}色はラン、チェックボックスでラン単位に表示を切り替える。</div>
 </div>
 
-<div class="card">
-  <h2 style="margin-top:0">グラフ 2: フレームごとの最終値</h2>
-  <div class="wrap"><canvas id="bars"></canvas></div>
-</div>
-
-<div class="card">
-  <h2 style="margin-top:0">フレーム別サマリー</h2>
-  <div class="tablewrap"><table>
-    <thead><tr>{"".join(f"<th>{h}</th>" for h in header)}</tr></thead>
-    <tbody>{"".join(rows)}</tbody>
-  </table></div>
-  <div class="note">「収束 iter」は損失がその run の初期値の 10% 以下へ最初に落ちた iteration。
-  初期損失が違う run 同士 (例: warm-start とそうでないもの) では、この値は run 内の相対的な
-  下げ幅を表すだけで、run 間の絶対比較には使えない。速度の比較はグラフ 1 の曲線そのものを見ること。</div>
-</div>
-
+{table}
 <script>
 const D = {payload};
 const curves = new Chart(document.getElementById('curves'), {{
@@ -300,12 +269,6 @@ function setAll(v) {{
 document.getElementById('all').onclick = () => setAll(true);
 document.getElementById('none').onclick = () => setAll(false);
 
-new Chart(document.getElementById('bars'), {{
-  type:'bar', data:{{labels:D.barLabels, datasets:D.bars}},
-  options:{{responsive:true, maintainAspectRatio:false, animation:false,
-    plugins:{{legend:{{position:'top'}}}},
-    scales:{{ y:{{title:{{display:true, text:D.key + ' (最終100iterの平均)'}}}} }} }}
-}});
 </script></body></html>
 """
 
