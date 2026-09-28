@@ -74,7 +74,12 @@ def frame_entries(run_dir: Path) -> list[tuple[int, Path]]:
         if record.get("status") != "COMPLETED":
             print(f"  [スキップ] frame {record['frame']}: status={record.get('status')}")
             continue
-        output = Path(record["output"])
+        # 書き込み側 (train_4d.py / warmstart_trainer.py / rebuild_manifest_4d.py) は
+        # 必ず <run_dir>/frame_NNNN に出力し、パスは起動時の cwd からの相対で残す。
+        # cwd やランの置き場所に依存しないよう、ディレクトリ名だけを取って run_dir の下を見る。
+        output = run_dir / Path(record["output"]).name
+        if not output.is_dir():
+            output = Path(record["output"])
         checkpoint = output / "checkpoints" / "latest.pt"
         if not checkpoint.is_file():
             named = sorted((output / "checkpoints").glob("iteration_*.pt"))
