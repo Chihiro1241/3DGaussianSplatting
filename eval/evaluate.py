@@ -28,7 +28,10 @@
 
 import argparse
 import csv
+import json
+import math
 from pathlib import Path
+from statistics import mean, pstdev
 
 import numpy as np
 from PIL import Image
@@ -256,8 +259,62 @@ def _finite_mean(values) -> float:
     return float(np.mean(finite))
 
 
+ARROWS = {"psnr": "↑", "ssim": "↑", "ms_ssim": "↑", "d_ssim": "↓", "lpips": "↓"}
+MAX_CAMERA_GROUPS = 32   # これを超えたらカメラ名ではなくフレーム名とみなす
+
+
+def camera_summary(all_results, metric_names):
+    """per-image の結果をカメラ別・全体に集計する。
+
+    ファイル名の語幹をカメラ名とみなす (cam00.png → cam00)。Neu3D の COLMAP
+    ローダーは 8 枚ごとの固定分割なので test は cam00 / cam09 / cam19 になる
+    (cam00 が公式指定の held-out 中央参照カメラ)。
+
+    D-NeRF のようにファイル名がフレーム番号 (r_000.png) のデータセットでは
+    1 グループ 1 枚に割れてカメラ別の意味を成さないので、その場合は None を返す。
+    """
+    groups: dict[str, list] = {}
+    for row in all_results:
+        groups.setdefault(Path(row["filename"]).stem, []).append(row)
+    if len(groups) > MAX_CAMERA_GROUPS or all(len(v) < 2 for v in groups.values()):
+        return None
+
+    def stats(rows):
+        entry = {"count": len(rows)}
+        for metric in metric_names:
+            values = [float(r[metric]) for r in rows
+                      if isinstance(r.get(metric), (int, float)) and math.isfinite(r[metric])]
+            if values:
+                entry[metric] = {"mean": mean(values),
+                                 "std": pstdev(values) if len(values) > 1 else 0.0,
+                                 "min": min(values), "max": max(values)}
+        return entry
+
+    return {"cameras": {name: stats(rows) for name, rows in sorted(groups.items())},
+            "overall": stats(all_results)}
+
+
+def print_camera_summary(summary, metric_names):
+    cameras = summary["cameras"]
+    total = summary["overall"]["count"]
+    print(f"\n{'─'*40}\n  カメラ別サマリー\n{'─'*40}")
+    print(f"  画像 {total:,} 枚 / カメラ {len(cameras)} 台 "
+          f"({total // max(len(cameras), 1):,} フレーム相当)")
+    header = f"  {'camera':<10}{'n':>7}" + "".join(
+        f"{m + ' ' + ARROWS.get(m, ''):>16}" for m in metric_names)
+    print(header)
+    print("  " + "-" * (len(header) - 2))
+    for name, entry in list(cameras.items()) + [("全体", summary["overall"])]:
+        cells = "".join(
+            f"{entry[m]['mean']:>10.4f}±{entry[m]['std']:<5.3f}" if m in entry else f"{'—':>16}"
+            for m in metric_names)
+        print(f"  {name:<10}{entry['count']:>7}{cells}")
+    print("  ± は per-image の標準偏差 (フレーム間のばらつき)。")
+
+
 def run_evaluation(dataset_type, render_dir, gt_dir, output_csv=None, model_path=None,
-                   device="cpu", lpips_net="vgg", rgba_background="white"):
+                   device="cpu", lpips_net="vgg", rgba_background="white",
+                   json_out=None):
     print(f"\n{'='*60}\n  4DGS 評価  |  dataset: {dataset_type.upper()}\n{'='*60}")
     pairs = collect_image_pairs(Path(render_dir), Path(gt_dir))
     if not pairs:
@@ -304,6 +361,22 @@ def run_evaluation(dataset_type, render_dir, gt_dir, output_csv=None, model_path
             writer.writerows(all_results)
             writer.writerow({"filename": "*** AVERAGE ***", **{m: f"{averages[m]:.4f}" for m in metric_names}})
         print(f"  CSV 保存: {destination}")
+
+    # カメラ別サマリー (旧 eval/summarize_camera_metrics.py 相当)。
+    # 集計は per-image 行だけが対象で、CSV 末尾の "*** AVERAGE ***" は
+    # all_results に入っていないので二重計上にはならない。
+    summary = camera_summary(all_results, metric_names)
+    if summary:
+        print_camera_summary(summary, metric_names)
+        if json_out:
+            destination = Path(json_out)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            payload = {"csv": str(output_csv) if output_csv else None, **summary}
+            destination.write_text(
+                json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+            print(f"  JSON 保存: {destination}")
+    elif json_out:
+        print("  [スキップ] ファイル名がカメラ別に分かれていないため JSON は出さない")
     return averages
 
 
@@ -315,6 +388,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--render_dir", required=True)
     p.add_argument("--gt_dir",     required=True)
     p.add_argument("--output_csv", default=None)
+    p.add_argument("--json_out", default=None,
+                   help="カメラ別サマリーの JSON 出力先 "
+                        "(ファイル名が cam00.png のようにカメラ別のときだけ出る)")
     p.add_argument("--model_path", default=None)
     p.add_argument("--device",     default="cuda")
     p.add_argument("--lpips_net",  default="vgg", choices=["vgg", "alex", "squeeze"],
@@ -338,7 +414,7 @@ def main(argv=None) -> int:
 
     run_evaluation(args.dataset, args.render_dir, args.gt_dir,
                    args.output_csv, args.model_path, args.device, args.lpips_net,
-                   args.rgba_background)
+                   args.rgba_background, args.json_out)
     return 0
 
 

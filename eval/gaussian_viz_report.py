@@ -5,7 +5,7 @@ eval/visualize_gaussians.py が書いた PNG / HTML / summary を 1 枚の
 
 使い方:
     python eval/gaussian_viz_report.py \
-        --viz_dir eval/gaussian_viz \
+        --viz_dir output/4DGS/neu3d/coffee_martini/baseline_30k/gaussian_viz \
         --frames  1 50 100 150 200 250 300
 
 画像は同じディレクトリに在る前提で **相対パス**で参照する。絶対パスを

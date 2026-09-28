@@ -3,7 +3,7 @@ eval/rebuild_manifest_4d.py
 出力ディレクトリを走査して frames_4d.json を作り直す。
 
 使い方:
-    python eval/rebuild_manifest_4d.py --run_dir output/4DGS/neu3d/baseline_30k
+    python eval/rebuild_manifest_4d.py --run_dir output/4DGS/neu3d/coffee_martini/baseline_30k
 
 ----------------------------------------------------------------------------
 なぜ必要か

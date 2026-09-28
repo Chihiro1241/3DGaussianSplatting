@@ -5,9 +5,9 @@ N フレームブロックごとの推移を表示する。
 
 使い方:
     python eval/evaluate_per_frame.py \
-        --render_dir output/4DGS/neu3d/renders/baseline_30k/renders \
-        --gt_dir     output/4DGS/neu3d/renders/baseline_30k/gt \
-        --output_csv eval/results/baseline_30k_per_frame.csv \
+        --render_dir output/4DGS/neu3d/coffee_martini/baseline_30k/renders/renders \
+        --gt_dir     output/4DGS/neu3d/coffee_martini/baseline_30k/renders/gt \
+        --output_csv output/4DGS/neu3d/coffee_martini/baseline_30k/results/per_frame.csv \
         --device cuda --rgba_background black --block 10
 
 ----------------------------------------------------------------------------

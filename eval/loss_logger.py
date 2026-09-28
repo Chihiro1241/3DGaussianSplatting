@@ -12,8 +12,8 @@ scripts/train.py も scripts/train_4d.py も変更しないのはこのため。
 1. 既存の train_log.jsonl から CSV を作る (推奨経路)::
 
        python eval/loss_logger.py \
-           --run_dir output/4DGS/dnerf/experiments/warmstart/lego \
-           --out_dir eval/loss_logs/_default --scene lego
+           --run_dir output/4DGS/dnerf/lego/experiments/warmstart \
+           --out_dir output/4DGS/dnerf/lego/experiments/warmstart/loss_logs
 
    ``--run_dir`` が frames_4d.json を持つ 4D ラン root なら、
    frame_0001/ ... を走査して frame_0000.csv ... を書き出す。
@@ -21,11 +21,13 @@ scripts/train.py も scripts/train_4d.py も変更しないのはこのため。
 
 2. 任意の呼び出し元から逐次記録する (LossLogger API)::
 
-       logger = LossLogger(out_dir="eval/loss_logs/_default", scene="lego", frame=0)
+       logger = LossLogger(out_dir="output/4DGS/dnerf/lego/experiments/warmstart/loss_logs", frame=0)
        logger.log(iteration=100, loss=0.042)
        logger.close()
 
-出力: ``<out_dir>/<scene>/frame_{:04d}.csv`` (iter, loss の 2 列)。
+出力: ``<out_dir>/frame_{:04d}.csv`` (iter, loss の 2 列)。
+シーンは出力パスの階層で表すので (``output/4DGS/neu3d/<scene>/loss_logs/<variant>/``)、
+``--out_dir`` はそのまま書き出し先になる。``--scene`` は進捗表示のラベルだけに使う。
 ``close()`` は最終行へ ``*** LAST100_MEAN ***`` 行を追記する。この行の loss は
 「最後の 100 iteration 区間の損失平均」で、記録間隔が 100 iter の場合は
 最終記録点そのものになるため、実際には最後に記録された点から遡って
@@ -56,10 +58,10 @@ def _mean_last_window(rows: list[tuple[int, float]], window: int = 100) -> float
 class LossLogger:
     """1 フレーム分の (iter, loss) を CSV へ記録する。"""
 
-    def __init__(self, out_dir: str | Path, scene: str, frame: int) -> None:
+    def __init__(self, out_dir: str | Path, frame: int) -> None:
         if not isinstance(frame, int) or frame < 0:
             raise ValueError("frame must be a non-negative integer")
-        self.path = Path(out_dir) / scene / f"frame_{frame:04d}.csv"
+        self.path = Path(out_dir) / f"frame_{frame:04d}.csv"
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._rows: list[tuple[int, float]] = []
         self._closed = False
@@ -116,7 +118,7 @@ def _frame_run_directories(run_dir: Path) -> list[Path]:
     return globbed or [run_dir]
 
 
-def convert(run_dir: Path, out_dir: Path, scene: str,
+def convert(run_dir: Path, out_dir: Path,
             loss_key: str = "loss_total") -> list[Path]:
     """run_dir 配下の train_log.jsonl を frame_NNNN.csv 群へ変換する。"""
     if not run_dir.is_dir():
@@ -131,7 +133,7 @@ def convert(run_dir: Path, out_dir: Path, scene: str,
         if not rows:
             print(f"  [スキップ] {log_path} に {loss_key} がありません")
             continue
-        logger = LossLogger(out_dir, scene, index)
+        logger = LossLogger(out_dir, index)
         for iteration, loss in rows:
             logger.log(iteration, loss)
         written.append(logger.close())
@@ -146,8 +148,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--run_dir", type=Path, required=True,
                         help="4D ラン root、または単一シーンの run ディレクトリ")
-    parser.add_argument("--out_dir", type=Path, default=Path("eval/loss_logs/_default"))
-    parser.add_argument("--scene", required=True)
+    parser.add_argument("--out_dir", type=Path, required=True,
+                        help="CSV の書き出し先。シーンは階層で表すのでここに含める")
+    parser.add_argument("--scene", default=None, help="進捗表示に使うラベル (任意)")
     parser.add_argument("--loss_key", default="loss_total",
                         choices=["loss_total", "loss_l1", "loss_dssim", "psnr"])
     return parser
@@ -155,8 +158,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    print(f"=== {args.scene}: {args.run_dir} -> {args.out_dir/args.scene} ===")
-    written = convert(args.run_dir, args.out_dir, args.scene, args.loss_key)
+    label = f"{args.scene}: " if args.scene else ""
+    print(f"=== {label}{args.run_dir} -> {args.out_dir} ===")
+    written = convert(args.run_dir, args.out_dir, args.loss_key)
     print(f"{len(written)} 本の CSV を書き出しました")
     return 0 if written else 1
 

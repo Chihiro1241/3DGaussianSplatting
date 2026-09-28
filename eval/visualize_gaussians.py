@@ -5,8 +5,8 @@ eval/visualize_gaussians.py
 
 使い方:
     python eval/visualize_gaussians.py \
-        --ckpt_dir output/4DGS/neu3d/baseline_30k/frame_0001 \
-        --out_dir  eval/gaussian_viz \
+        --ckpt_dir output/4DGS/neu3d/coffee_martini/baseline_30k/frame_0001 \
+        --out_dir  output/4DGS/neu3d/coffee_martini/baseline_30k/gaussian_viz \
         --frame    1
 
 ----------------------------------------------------------------------------

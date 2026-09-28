@@ -6,7 +6,7 @@
 
 起動::
 
-    streamlit run eval/snapshot_viewer.py -- --run output/4DGS/neu3d/warmstart_neu3d_trial
+    streamlit run eval/snapshot_viewer.py -- --run output/4DGS/neu3d/coffee_martini/warmstart_neu3d_trial
 
 ``--run`` は省略でき、その場合はサイドバーの入力欄からパスを指定する。
 

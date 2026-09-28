@@ -4,7 +4,7 @@ eval/benchmark_fps.py
 
 使い方:
     python eval/benchmark_fps.py \
-        --run_dir output/4DGS/neu3d/baseline_30k \
+        --run_dir output/4DGS/neu3d/coffee_martini/baseline_30k \
         --data_dir data/neu3d/coffee_martini/converted_4d \
         --frames 1 50 100 150 200 250 300
 

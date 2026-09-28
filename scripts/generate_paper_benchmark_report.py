@@ -319,7 +319,7 @@ def _appendix_markdown(manifest: dict[str, Any], rows: list[dict[str, Any]]) -> 
     lines.extend(["", "## A.5 定性的画像index", "", "代表viewは30K per-view PSNRがscene平均に最も近いtest view。各directoryにGT、7K、30K、error map、metadata.jsonを保存した。", "", "| Dataset | Scene | Comparison | Native images |", "|---|---|---|---|"])
     for scene in manifest["scenes"]:
         slug = _slug_for_report(scene["dataset"], scene["scene"])
-        lines.append(f"| {scene['dataset']} | {scene['scene']} | [figure](figures/fig_{slug}.png) | [qualitative](../../{DATASET_DIR[scene['dataset']]}/qualitative/{scene['scene']}/) |")
+        lines.append(f"| {scene['dataset']} | {scene['scene']} | [figure](figures/fig_{slug}.png) | [qualitative](../../{DATASET_DIR[scene['dataset']]}/{scene['scene']}/qualitative/) |")
     return "\n".join(lines) + "\n"
 
 

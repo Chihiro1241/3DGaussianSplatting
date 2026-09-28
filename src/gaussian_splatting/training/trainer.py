@@ -266,6 +266,17 @@ class Trainer:
             self.camera_cursor = int(camera_cursor)
 
     @property
+    def training_loop_seconds(self) -> float:
+        """Seconds spent inside ``train_step``, excluding evaluation and I/O.
+
+        This is the same quantity ``training_telemetry.json`` reports, exposed
+        so a caller that drives the trainer directly can read it without going
+        back through the file.
+        """
+
+        return self._prior_training_loop_seconds + self._training_loop_seconds
+
+    @property
     def _model_device(self) -> torch.device:
         return self.model.means_world.device
 

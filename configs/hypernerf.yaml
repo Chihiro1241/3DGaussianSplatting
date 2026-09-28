@@ -1,6 +1,6 @@
 # HyperNeRF (vrig) 用。configs/paper_benchmark/real.yaml から
 # initialization.aabb_half_extent のみ変更したもの。
-# データは eval/convert_hypernerf.py で NeRF Synthetic 形式へ変換したものを使う。
+# データは data/convert_hypernerf.py で NeRF Synthetic 形式へ変換したものを使う。
 runtime:
   device: cuda
   dtype: float32
@@ -16,7 +16,7 @@ model:
 initialization:
   num_gaussians: 100000
   # HyperNeRF は scene.json の (p - center) * scale で正規化済みで、
-  # eval/convert_hypernerf.py 変換後のシーン内容は概ね半径 0.55 に収まる
+  # data/convert_hypernerf.py 変換後のシーン内容は概ね半径 0.55 に収まる
   # (vrig-chicken: 点群 98 パーセンタイル半径 0.543、カメラ中心 |c| < 0.7)。
   # 既定の 1.3 では初期 Gaussian の大半がシーン外に落ちて枝刈りされるため縮める。
   aabb_half_extent: [0.6, 0.6, 0.6]

@@ -1,0 +1,97 @@
+# warm-start の iteration 数探索用 (frame 2 以降専用)。
+# frame 1 は base.yaml で学習した 30,000 iter のチェックポイントを
+# --carry-over-checkpoint で受け取るので、本ファイルは frame 2 以降にしか
+# 使わない。iteration 数は --subsequent-frame-iterations で上書きする。
+#
+# base.yaml からの差分:
+#   iterations 30000 -> 1000            (既定値。CLI で上書きする)
+#   checkpoint_interval 1000 -> 1000000 (iteration 数を CLI で変えても
+#                                       各フレーム最終の 1 個だけになるように。
+#                                       最終 iteration は必ず保存される)
+#   adaptive_density_control -> false   (clone/split/prune を止めてガウシアン数を固定)
+#   opacity_reset -> false
+#   progressive_sh_degree -> false      (最初から次数 3)
+#   resolution_warmup -> false          (最初からフル解像度)
+#   warm_start セクションを追加         (位置 LR を固定値に / Adam 状態の扱い)
+#
+# warm_start は carry-over したフレームにしか効かないので、本ファイルを
+# frame 1 に使っても静的学習の挙動は変わらない (ただしその用途は想定しない)。
+# density_control の各値は ADC が無効なので参照されないが、strict ローダーが
+# 全キーを要求するため base.yaml の値をそのまま残してある。
+runtime:
+  device: cuda
+  dtype: float32
+  seed: 0
+data:
+  camera_file: camera_poses_blender.json
+  resolution_scale: 1.0
+  rgba_background: black
+  test_every: 8
+model:
+  sh_degree: 3
+  epsilon_q: 1.0e-8
+initialization:
+  num_gaussians: 100000
+  aabb_half_extent: [1.3, 1.3, 1.3]
+  initial_rgb: [0.5, 0.5, 0.5]
+  neighbor_count: 3
+  epsilon_scale: 1.0e-7
+  opacity: 0.1
+rendering:
+  background: [0.0, 0.0, 0.0]
+  sigma_extent: 3.0
+  epsilon_covariance: 0.3
+  epsilon_determinant: 1.0e-8
+  alpha_max: 0.99
+  alpha_min: 0.00392156862745098
+  transmittance_min: 1.0e-4
+  tile_based: false
+loss:
+  lambda_dssim: 0.2
+  ssim_window_size: 11
+  ssim_sigma: 1.5
+  ssim_k1: 0.01
+  ssim_k2: 0.03
+training:
+  iterations: 1000
+  views_per_iteration: 1
+  optimizer: adam
+  adam_beta1: 0.9
+  adam_beta2: 0.999
+  adam_epsilon: 1.0e-15
+  weight_decay: 0.0
+  position_lr_initial: 1.6e-4
+  position_lr_final: 1.6e-6
+  sh_dc_lr: 2.5e-3
+  sh_rest_lr: 1.25e-4
+  opacity_lr: 5.0e-2
+  scale_lr: 5.0e-3
+  quaternion_lr: 1.0e-3
+  log_interval: 100
+  evaluation_interval: 30000
+  checkpoint_interval: 1000000
+  save_best_by: mean_psnr
+density_control:
+  densify_from_iteration: 500
+  densify_until_iteration: 15000
+  densification_interval: 100
+  position_gradient_threshold: 0.0002
+  percent_dense: 0.01
+  prune_opacity_threshold: 0.005
+  opacity_reset_interval: 3000
+  opacity_reset_maximum: 0.01
+  prune_screen_radius_threshold: 20.0
+  prune_world_scale_fraction: 0.1
+output:
+  exist_policy: error
+  save_rendered_images: false
+features:
+  adaptive_density_control: false
+  opacity_reset: false
+  progressive_sh_degree: false
+  resolution_warmup: false
+  random_initial_sh_dc: false
+warm_start:
+  position_lr_mode: fixed
+  position_lr_fixed: 1.6e-5
+  adam_state: reset
