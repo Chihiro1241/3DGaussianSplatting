@@ -1,17 +1,26 @@
 """
-<...>/loss_logs/<variant>/frame_*.csv を読み、損失曲線の比較 HTML を生成する。
+eval/analysis/plot_loss.py
+``loss_logs/frame_*.csv`` (export_loss_csv.py の出力) を読み、損失曲線を 1 枚の HTML にする。
+
+``--run`` を繰り返すと、指定したランをすべて同じ図に重ねる。ランの本数と
+ラベルは自由で、どのランも同じ扱い (基準ランや差分の列は持たない)。
 
 使い方:
-    # warm-start ありのみ
+    # 1 ラン
     python eval/analysis/plot_loss.py \
-        --log_dir  output/4DGS/dnerf/lego/experiments/warmstart/loss_logs \
-        --out_html output/4DGS/dnerf/lego/loss_plots/lego.html
+        --run output/4DGS/neu3d/coffee_martini/baseline_30k/loss_logs \
+        --out_html output/4DGS/neu3d/coffee_martini/loss_plots/baseline_30k.html
 
-    # warm-start あり vs なし
+    # 任意のランを重ねる (ラベル=パス。ラベル省略時はランのディレクトリ名)
     python eval/analysis/plot_loss.py \
-        --log_dir      output/4DGS/dnerf/lego/experiments/warmstart/loss_logs \
-        --baseline_dir output/4DGS/dnerf/lego/experiments/baseline/loss_logs \
-        --out_html     output/4DGS/dnerf/lego/loss_plots/lego_compare.html
+        --run "30k=output/4DGS/neu3d/coffee_martini/baseline_30k/loss_logs" \
+        --run "7k=output/4DGS/neu3d/coffee_martini/baseline_7k/loss_logs" \
+        --run "warm 250=output/4DGS/neu3d/cook_spinach/warmstart_250_300f/loss_logs" \
+        --frames 0 50 100 \
+        --out_html output/4DGS/neu3d/loss_plots/overlay.html
+
+``--frames`` は ``frame_NNNN.csv`` の番号で描くフレームを絞る (既定は全フレーム)。
+ランごとに色を分け、同じランのフレームは同じ色で描く。表示/非表示はラン単位で切り替えられる。
 
 出力は単一の自己完結 HTML。Chart.js だけ CDN から読む。
 """
@@ -28,9 +37,9 @@ from export_loss_csv import load_series
 
 CHART_JS = "https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"
 
-# 色相を回して各フレームに色を割り当てる (フレーム数が可変のため固定表は使わない)
-def _frame_color(index: int, total: int, alpha: float = 1.0) -> str:
-    hue = (index * 360.0 / max(total, 1)) % 360.0
+def _run_color(index: int, total: int, alpha: float = 1.0) -> str:
+    """ランごとに色相を回して割り当てる (ラン数が可変のため固定表は使わない)。"""
+    hue = (215 + index * 360.0 / max(total, 1)) % 360.0
     return f"hsla({hue:.0f}, 70%, 45%, {alpha})"
 
 
@@ -42,74 +51,53 @@ def _fmt(value: float | None, digits: int = 6) -> str:
     return f"{value:.{digits}g}" if isinstance(value, float) else str(value)
 
 
-def build_html(series: list[dict], baseline: list[dict] | None,
-               title: str) -> str:
-    total = len(series)
+def build_html(runs: list[tuple[str, list[dict]]], title: str) -> str:
+    """``runs`` は (ラベル, load_series の結果) の並び。"""
+    total = len(runs)
     curve_datasets = []
-    for index, item in enumerate(series):
-        curve_datasets.append({
-            "label": f"{item['name']} (warm)" if baseline else item["name"],
-            "data": [{"x": i, "y": l} for i, l in zip(item["iters"], item["losses"])],
-            "borderColor": _frame_color(index, total),
-            "backgroundColor": _frame_color(index, total, 0.25),
-            "borderWidth": 1.6, "pointRadius": 0, "tension": 0.1,
-        })
-    if baseline:
-        for index, item in enumerate(baseline):
+    for run_index, (label, series) in enumerate(runs):
+        # 同じランのフレームは同じ色。フレームが多いほど細く薄くして重なりを読めるようにする。
+        alpha = 1.0 if len(series) <= 5 else 0.55
+        for item in series:
             curve_datasets.append({
-                "label": f"{item['name']} (baseline)",
+                "label": f"{label} / {item['name']}",
+                "run": run_index,
                 "data": [{"x": i, "y": l} for i, l in zip(item["iters"], item["losses"])],
-                "borderColor": _frame_color(index, len(baseline), 0.55),
-                "backgroundColor": "transparent",
-                "borderWidth": 1.2, "borderDash": [5, 4],
-                "pointRadius": 0, "tension": 0.1, "hidden": True,
+                "borderColor": _run_color(run_index, total, alpha),
+                "backgroundColor": _run_color(run_index, total, 0.25),
+                "borderWidth": 1.6 if len(series) <= 5 else 1.0,
+                "pointRadius": 0, "tension": 0.1,
             })
+    run_legend = [{"label": label, "color": _run_color(i, total)} for i, (label, _) in enumerate(runs)]
 
-    labels = [item["name"] for item in series]
-    base_by_name = {item["name"]: item for item in (baseline or [])}
+    frame_names = sorted({item["name"] for _, series in runs for item in series})
+    by_run = [{item["name"]: item for item in series} for _, series in runs]
     bar_datasets = [{
-        "label": "warm-start",
-        "data": [None if math.isnan(i["final"]) else i["final"] for i in series],
-        "backgroundColor": "hsla(215, 75%, 50%, 0.85)",
-    }]
-    if baseline:
-        bar_datasets.append({
-            "label": "baseline (warm-start なし)",
-            "data": [
-                (lambda b: None if b is None or math.isnan(b["final"]) else b["final"])(
-                    base_by_name.get(name))
-                for name in labels
-            ],
-            "backgroundColor": "hsla(0, 0%, 55%, 0.85)",
-        })
+        "label": label,
+        "data": [
+            None if (item := lookup.get(name)) is None or math.isnan(item["final"]) else item["final"]
+            for name in frame_names
+        ],
+        "backgroundColor": _run_color(i, total, 0.85),
+    } for i, ((label, _), lookup) in enumerate(zip(runs, by_run))]
 
     rows = []
-    for item in series:
-        base = base_by_name.get(item["name"])
-        cells = [
-            f"<td>{html.escape(item['name'])}</td>",
-            f"<td class='num'>{_fmt(item['final'])}</td>",
-            f"<td class='num'>{_fmt(item['converged_iter'], 0)}</td>",
-        ]
-        if baseline:
-            delta = None
-            if base and not math.isnan(base["final"]) and not math.isnan(item["final"]) \
-               and base["final"] != 0:
-                delta = (item["final"] - base["final"]) / base["final"] * 100.0
-            cls = "" if delta is None else (" good" if delta < 0 else " bad")
+    for name in frame_names:
+        cells = [f"<td>{html.escape(name)}</td>"]
+        for lookup in by_run:
+            item = lookup.get(name)
             cells += [
-                f"<td class='num'>{_fmt(base['final']) if base else '&mdash;'}</td>",
-                f"<td class='num'>{_fmt(base['converged_iter'], 0) if base else '&mdash;'}</td>",
-                f"<td class='num{cls}'>{'&mdash;' if delta is None else f'{delta:+.1f}%'}</td>",
+                f"<td class='num'>{_fmt(item['final']) if item else '&mdash;'}</td>",
+                f"<td class='num'>{_fmt(item['converged_iter'], 0) if item else '&mdash;'}</td>",
             ]
         rows.append("<tr>" + "".join(cells) + "</tr>")
-
-    header = ["フレーム", "収束損失 (warm)", "収束 iter (warm)"]
-    if baseline:
-        header += ["収束損失 (baseline)", "収束 iter (baseline)", "損失の変化"]
+    header = ["フレーム"]
+    for label, _ in runs:
+        header += [f"収束損失 ({html.escape(label)})", f"収束 iter ({html.escape(label)})"]
 
     payload = json.dumps(
-        {"curves": curve_datasets, "barLabels": labels, "bars": bar_datasets},
+        {"curves": curve_datasets, "runs": run_legend,
+         "barLabels": frame_names, "bars": bar_datasets},
         ensure_ascii=False,
     )
 
@@ -138,7 +126,6 @@ def build_html(series: list[dict], baseline: list[dict] | None,
  th,td {{ border-bottom:1px solid var(--line); padding:7px 10px; text-align:left; }}
  th {{ font-weight:600; color:var(--muted); }}
  td.num {{ text-align:right; font-variant-numeric:tabular-nums; }}
- td.good {{ color:#1a7f37; }} td.bad {{ color:#b3261e; }}
  .note {{ color:var(--muted); font-size:12px; margin-top:10px; }}
  .tablewrap {{ overflow-x:auto; }}
 </style></head><body>
@@ -146,11 +133,11 @@ def build_html(series: list[dict], baseline: list[dict] | None,
 <div class="sub">損失曲線 (loss vs iteration)。収束損失は最終 100 iteration の平均。</div>
 
 <div class="card">
-  <h2 style="margin-top:0">グラフ 1: 全フレームの損失曲線</h2>
+  <h2 style="margin-top:0">グラフ 1: 損失曲線</h2>
   <div class="wrap"><canvas id="curves"></canvas></div>
   <div class="btns"><button id="all">全表示</button><button id="none">全非表示</button></div>
   <div class="toggles" id="toggles"></div>
-  <div class="note">Y 軸は対数スケール。{"破線が baseline (既定では非表示)。" if baseline else ""}</div>
+  <div class="note">Y 軸は対数スケール。色はラン、チェックボックスでラン単位に表示を切り替える。</div>
 </div>
 
 <div class="card">
@@ -165,8 +152,8 @@ def build_html(series: list[dict], baseline: list[dict] | None,
     <tbody>{"".join(rows)}</tbody>
   </table></div>
   <div class="note">「収束 iter」は損失がその run の初期値の 10% 以下へ最初に落ちた iteration。
-  warm-start では初期損失自体が低いため、この値は run 内の相対的な下げ幅を表すもので、
-  warm/baseline 間の絶対比較には使えない。速度の比較はグラフ 1 の曲線そのものを見ること。</div>
+  初期損失が違う run 同士 (例: warm-start とそうでないもの) では、この値は run 内の相対的な
+  下げ幅を表すだけで、run 間の絶対比較には使えない。速度の比較はグラフ 1 の曲線そのものを見ること。</div>
 </div>
 
 <script>
@@ -175,23 +162,28 @@ const curves = new Chart(document.getElementById('curves'), {{
   type:'line', data:{{datasets:D.curves}},
   options:{{responsive:true, maintainAspectRatio:false, animation:false,
     interaction:{{mode:'nearest', intersect:false}},
-    plugins:{{legend:{{display:false}}}},
+    plugins:{{legend:{{display:false}},
+      tooltip:{{callbacks:{{title:(items) => items.length ? items[0].dataset.label : ''}}}}}},
     scales:{{ x:{{type:'linear', title:{{display:true, text:'iteration'}}}},
               y:{{type:'logarithmic', title:{{display:true, text:'loss'}}}} }} }}
 }});
 const box = document.getElementById('toggles');
-D.curves.forEach((ds, i) => {{
+function setRun(run, v) {{
+  D.curves.forEach((ds, i) => {{ if (ds.run === run) curves.setDatasetVisibility(i, v); }});
+}}
+D.runs.forEach((r, run) => {{
   const label = document.createElement('label');
   const cb = document.createElement('input');
-  cb.type = 'checkbox'; cb.checked = !ds.hidden;
-  cb.onchange = () => {{ curves.setDatasetVisibility(i, cb.checked); curves.update(); }};
+  cb.type = 'checkbox'; cb.checked = true;
+  cb.onchange = () => {{ setRun(run, cb.checked); curves.update(); }};
   const sw = document.createElement('span');
-  sw.className = 'swatch'; sw.style.background = ds.borderColor;
-  label.append(cb, sw, document.createTextNode(ds.label));
+  sw.className = 'swatch'; sw.style.background = r.color;
+  const n = D.curves.filter(ds => ds.run === run).length;
+  label.append(cb, sw, document.createTextNode(`${{r.label}} (${{n}} フレーム)`));
   box.appendChild(label);
 }});
 function setAll(v) {{
-  D.curves.forEach((_, i) => curves.setDatasetVisibility(i, v));
+  D.runs.forEach((_, run) => setRun(run, v));
   box.querySelectorAll('input').forEach(cb => cb.checked = v);
   curves.update();
 }}
@@ -208,12 +200,27 @@ new Chart(document.getElementById('bars'), {{
 """
 
 
+def parse_run(text: str) -> tuple[str, Path]:
+    """``ラベル=パス`` か ``パス``。ラベル省略時はランのディレクトリ名を使う。"""
+    label, sep, path = text.partition("=")
+    if not sep:
+        path_obj = Path(text)
+        run_dir = path_obj.parent if path_obj.name == "loss_logs" else path_obj
+        return run_dir.name, path_obj
+    if not label or not path:
+        raise argparse.ArgumentTypeError(f"--run は ラベル=パス の形で指定してください: {text!r}")
+    return label, Path(path)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("--log_dir", type=Path, required=True)
-    parser.add_argument("--baseline_dir", type=Path, default=None)
+    parser.add_argument("--run", type=parse_run, action="append", required=True,
+                        metavar="[LABEL=]LOG_DIR",
+                        help="loss_logs ディレクトリ。繰り返すと同じ図に重ねる")
+    parser.add_argument("--frames", type=int, nargs="+", default=None,
+                        help="描く frame_NNNN.csv の番号 (既定: 全フレーム)")
     parser.add_argument("--out_html", type=Path, required=True)
     parser.add_argument("--title", default=None)
     return parser
@@ -221,16 +228,26 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    series = load_series(args.log_dir)
-    if not series:
-        print(f"[エラー] {args.log_dir} に frame_*.csv がありません")
+    labels = [label for label, _ in args.run]
+    if len(set(labels)) != len(labels):
+        print(f"[エラー] ラベルが重複しています: {labels}  (ラベル=パス で区別してください)")
         return 1
-    baseline = load_series(args.baseline_dir) if args.baseline_dir else None
-    title = args.title or f"損失曲線: {args.log_dir.name}" + (
-        " (warm-start vs baseline)" if baseline else "")
+
+    runs: list[tuple[str, list[dict]]] = []
+    for label, log_dir in args.run:
+        series = load_series(log_dir)
+        if args.frames is not None:
+            wanted = set(args.frames)
+            series = [item for item in series if item["frame"] in wanted]
+        if not series:
+            print(f"[エラー] {label}: {log_dir} に対象の frame_*.csv がありません")
+            return 1
+        runs.append((label, series))
+        print(f"  {label}: {len(series)} フレーム ({log_dir})")
+
+    title = args.title or "損失曲線: " + " / ".join(labels)
     args.out_html.parent.mkdir(parents=True, exist_ok=True)
-    args.out_html.write_text(build_html(series, baseline, title), encoding="utf-8")
-    print(f"  warm  {len(series)} フレーム" + (f" / baseline {len(baseline)} フレーム" if baseline else ""))
+    args.out_html.write_text(build_html(runs, title), encoding="utf-8")
     print(f"  -> {args.out_html} ({args.out_html.stat().st_size/1024:.1f} KB)")
     return 0
 

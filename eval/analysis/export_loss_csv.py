@@ -5,7 +5,7 @@ eval/analysis/export_loss_csv.py
 本体の Trainer は ``<run>/train_log.jsonl`` へ 100 iter ごとに
 ``loss_total`` / ``loss_l1`` / ``loss_dssim`` / ``psnr`` などを出力している
 (src/gaussian_splatting/training/trainer.py)。本スクリプトはそれを
-``plot_loss.py`` / ``summarize_warmstart.py`` が読む CSV へ変換するだけで、
+``plot_loss.py`` が読む CSV へ変換するだけで、
 学習には関与しない。
 
 使い方::
@@ -75,7 +75,7 @@ def rows_from_train_log(path: Path, loss_key: str = "loss_total") -> list[tuple[
     return rows
 
 
-# ---- 読み込み側 (plot_loss.py / summarize_warmstart.py が使う) ----
+# ---- 読み込み側 (plot_loss.py が使う) ----
 def read_frame_csv(path: Path) -> tuple[list[int], list[float], float]:
     """(iters, losses, last100_mean) を返す。"""
     iters: list[int] = []

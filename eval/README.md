@@ -44,16 +44,13 @@ eval/
 | ツール | 用途 | 主な入力 → 出力 | 自動 |
 |---|---|---|---|
 | `scripts/evaluate.py` (画像モード) | 画像対から PSNR/SSIM/D-SSIM/MS-SSIM/LPIPS | `--render-dir --gt-dir` → `--output-csv` (`metrics.csv`)、`--json-out` (`summary.json`、カメラ別)、`--per-frame-csv` (`per_frame.csv`) | ● |
-| `analysis/gaussian_count_trend.py` | ガウシアン数・時間・VRAM の推移 | `--run_dir` → `--output_csv` (`gaussian_counts.csv`) | ● |
+| `analysis/plot_gaussian_count.py` | ガウシアン数・時間・VRAM の集計表示・CSV・推移の図。`--run` を繰り返すと任意のランを 1 枚に重ねる | `--run [LABEL=]RUN_DIR` (複数可) → `--output_csv` (`gaussian_counts.csv`、1 ランのみ) / `--out_html` | ● |
 | `analysis/export_loss_csv.py` | `train_log.jsonl` を損失 CSV へ変換 | `--run_dir` → `--out_dir` (`loss_logs/`) | ○ |
 
 ### 4. 集計・比較・レポート
 
 | ツール | 用途 | 主な入力 → 出力 | 自動 |
 |---|---|---|---|
-| `analysis/summarize.py` | 全データセットを論文値と並べる | `--results_dir output` → 標準出力 | ○ |
-| `analysis/compare_runs.py` | 2 ランを突き合わせる（カメラ別 / フレームブロック別） | `--a --b` (`per_frame.csv` でも `metrics.csv` でも可) → 標準出力 | ○ |
-| `analysis/summarize_warmstart.py` | warm-start と baseline の収束比較 | `--warm_dir --baseline_dir` (+ `--warm_run --baseline_run`) → 標準出力 | ○ |
 | `report/make_eval_report.py` | ラン 1 本の `eval.md` を生成 | `--run_dir` (+ `--compare`) → `<run_dir>/eval.md` | ● |
 | `scripts/plot_warmstart_sweep.py` | iteration 数 sweep の図と飽和/ドリフト分析 | `--sweep` → `<sweep>/figures/` (`report.html`, `summary.csv`, `analysis.json`, 定性比較 PNG) | ○ |
 
@@ -63,7 +60,7 @@ eval/
 |---|---|---|---|
 | `visualization/visualize_gaussians.py` | チェックポイントのガウシアン分布を投影 | `--ckpt_dir` → `--out_dir` (PNG + HTML) | ● |
 | `visualization/gaussian_viz_report.py` | 上の出力を 1 枚の HTML にまとめる | `--viz_dir` → `--out` | ● |
-| `analysis/plot_loss.py` | 損失曲線の比較 HTML | `--log_dir --baseline_dir` → `--out_html` | ○ |
+| `analysis/plot_loss.py` | 損失曲線の HTML。`--run` を繰り返すと任意のランを 1 枚に重ねる | `--run [LABEL=]loss_logs` (複数可) `--frames` → `--out_html` | ○ |
 | `visualization/extract_snapshots.py` | 学習過程のスナップショット (npz) を抽出 | `--run` → npz | ○ |
 | `visualization/snapshot_viewer.py` | フレーム × iteration の 2 軸ビューワー (streamlit) | `--run` → ブラウザ | ○ |
 | `scripts/rendering/make_video.py` | 描画結果をカメラごとの mp4 に（単一視点のみ） | `--render-root` → `--out-dir` (`<camera>.mp4`) | ● |
@@ -90,6 +87,9 @@ eval/
 | 可視化 4 本 | `eval/visualization/` へ移動のみ |
 | 集計・比較 5 本 / `plot_loss.py` | `eval/analysis/` へ移動。損失 CSV の読み込み関数は `plot_loss.py` から `export_loss_csv.py` へ移した |
 | `make_eval_report.py` / `templates/` | `eval/report/` へ移動。テンプレートはスクリプト自身の位置から探す |
+| `summarize.py` / `summarize_warmstart.py` / `compare_runs.py` | 削除。論文値との比較・2 ランの比較は各ランの `metrics.csv` / `per_frame.csv` / `loss_logs/` / `gaussian_counts.csv` から自分で行う |
+| `plot_loss.py --log_dir --baseline_dir` | `plot_loss.py --run [LABEL=]DIR` を繰り返す形に変更。基準ラン・差分列は廃止し、任意のランを同じ扱いで重ねる |
+| `gaussian_count_trend.py` | `plot_gaussian_count.py`（`--run_dir` → `--run`。集計表示と CSV は同一のまま、`--out_html` で推移の図も出す） |
 
 ## 評価の入口は `scripts/evaluate.py` の 1 本
 
@@ -135,8 +135,6 @@ python scripts/evaluate.py \
     --gt-dir     data/nerf_synthetic/lego/test \
     --output-csv output/3DGS/nerf_synthetic/lego/results/metrics.csv
 
-# 3. 集計
-python eval/analysis/summarize.py --results_dir output
 ```
 
 ## 実行スクリプトは `runs/` の 3 本
@@ -470,24 +468,14 @@ python eval/analysis/export_loss_csv.py --run_dir output/4DGS/neu3d/coffee_marti
 python eval/analysis/export_loss_csv.py --run_dir output/4DGS/neu3d/coffee_martini/baseline_neu3d_trial \
     --out_dir output/4DGS/neu3d/coffee_martini/baseline_neu3d_trial/loss_logs
 python eval/analysis/plot_loss.py \
-    --log_dir      output/4DGS/neu3d/coffee_martini/warmstart_neu3d_trial/loss_logs \
-    --baseline_dir output/4DGS/neu3d/coffee_martini/baseline_neu3d_trial/loss_logs \
-    --out_html     output/4DGS/neu3d/coffee_martini/loss_plots/neu3d_coffee_martini_trial.html
+    --run "warm-start=output/4DGS/neu3d/coffee_martini/warmstart_neu3d_trial/loss_logs" \
+    --run "baseline=output/4DGS/neu3d/coffee_martini/baseline_neu3d_trial/loss_logs" \
+    --out_html output/4DGS/neu3d/coffee_martini/loss_plots/neu3d_coffee_martini_trial.html
 ```
 
 `plot_loss.py` の「収束 iter」(損失が初期値の 10% に落ちた iter) は
 **run 内の相対量**であり run 間で直接比較できない。warm-start は初期損失
 そのものが低いためで、スクリプト自身も HTML に注記を出す。
-
-### 数値サマリー
-
-```bash
-python eval/analysis/summarize_warmstart.py \
-    --warm_dir     output/4DGS/neu3d/coffee_martini/warmstart_neu3d_trial/loss_logs \
-    --baseline_dir output/4DGS/neu3d/coffee_martini/baseline_neu3d_trial/loss_logs \
-    --warm_run     output/4DGS/neu3d/coffee_martini/warmstart_neu3d_trial \
-    --baseline_run output/4DGS/neu3d/coffee_martini/baseline_neu3d_trial
-```
 
 **「収束 iter = 損失が初期値の 10%」は Neu3D では使えない**。`log_interval: 100`
 なので最初の記録点が iter 100 で、そこまでに損失が大きく落ちきっており、
@@ -568,14 +556,9 @@ python eval/analysis/export_loss_csv.py --run_dir output/4DGS/neu3d/coffee_marti
 python eval/analysis/export_loss_csv.py --run_dir output/4DGS/neu3d/coffee_martini/baseline_neu3d_full \
     --out_dir output/4DGS/neu3d/coffee_martini/baseline_neu3d_full/loss_logs
 python eval/analysis/plot_loss.py \
-    --log_dir      output/4DGS/neu3d/coffee_martini/warmstart_neu3d_full/loss_logs \
-    --baseline_dir output/4DGS/neu3d/coffee_martini/baseline_neu3d_full/loss_logs \
-    --out_html     output/4DGS/neu3d/coffee_martini/loss_plots/neu3d_coffee_martini_full.html
-python eval/analysis/summarize_warmstart.py \
-    --warm_dir     output/4DGS/neu3d/coffee_martini/warmstart_neu3d_full/loss_logs \
-    --baseline_dir output/4DGS/neu3d/coffee_martini/baseline_neu3d_full/loss_logs \
-    --warm_run     output/4DGS/neu3d/coffee_martini/warmstart_neu3d_full \
-    --baseline_run output/4DGS/neu3d/coffee_martini/baseline_neu3d_full
+    --run "warm-start=output/4DGS/neu3d/coffee_martini/warmstart_neu3d_full/loss_logs" \
+    --run "baseline=output/4DGS/neu3d/coffee_martini/baseline_neu3d_full/loss_logs" \
+    --out_html output/4DGS/neu3d/coffee_martini/loss_plots/neu3d_coffee_martini_full.html
 ```
 
 ### フェーズ 3: 画質評価
