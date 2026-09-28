@@ -1,7 +1,8 @@
-"""Plot training loss and PSNR for all 21 benchmark scenes in one 2x2 figure.
+"""Plot training loss and PSNR for all 21 benchmark scenes as two figures.
 
-Scene grouping, colours and smoothing are taken from make_loss_plot.py so that
-every figure in the report reads as one family.
+Each figure has the same two-panel layout as make_plot.py (real-world datasets
+above, Synthetic NeRF below), so that loss_plot.pdf, psnr_plot.pdf and
+gaussian_count_plot.pdf read as one family.
 """
 import json
 from pathlib import Path
@@ -16,7 +17,7 @@ from matplotlib.ticker import FuncFormatter
 
 # データセット別レイアウト: <ROOT_3DGS>/<dataset>/<scene>/  (1 シーン 1 ラン)
 ROOT_3DGS = Path("output/3DGS")
-OUT = Path("output/3DGS/benchmark_report/report/loss_psnr_plot.pdf")
+OUT_DIR = Path("output/3DGS/benchmark_report/report")
 
 # One colour per dataset; every scene of a dataset is drawn identically.
 COLOURS = {
@@ -50,7 +51,7 @@ SCENES = [
     ("nerf_synthetic/ship", "Synthetic NeRF"),
 ]
 
-ROWS = [
+PANELS = [
     (
         "実世界データセット（Mip-NeRF360 / Tanks&Temples / Deep Blending）",
         ["Mip-NeRF360", "Tanks&Temples", "Deep Blending"],
@@ -58,16 +59,17 @@ ROWS = [
     ("Synthetic NeRF", ["Synthetic NeRF"]),
 ]
 
-# (log key, axis label, log scale?, legend corner)
-COLUMNS = [
-    ("loss_total", "損失値（対数スケール）", True, "upper right"),
-    ("psnr", "PSNR (dB)", False, "lower right"),
+# (log key, output file, figure title, axis label, log scale?, legend corner)
+FIGURES = [
+    ("loss_total", "loss_plot.pdf", "学習損失 $\\mathcal{L}$ の推移",
+     "損失値（対数スケール）", True, "upper right"),
+    ("psnr", "psnr_plot.pdf", "PSNRの推移", "PSNR (dB)", False, "lower right"),
 ]
 
 MILESTONES = [(7000, "7K"), (15000, "15K")]
 WINDOW = 10  # moving-average width, in logged intervals
 
-# (row index, metric) -> fixed y-axis lower bound; anything absent is autoscaled.
+# (panel index, metric) -> fixed y-axis lower bound; anything absent is autoscaled.
 YLIM_BOTTOM = {(0, "psnr"): 15.0}
 
 
@@ -87,12 +89,12 @@ def moving_average(values: np.ndarray, window: int) -> np.ndarray:
     return np.convolve(values, np.ones(window) / window, mode="valid")
 
 
-def draw_panel(axes, title, datasets, key, ylabel, log_scale, legend_loc, show_legend,
+def draw_panel(axes, logs, title, datasets, key, ylabel, log_scale, legend_loc,
                ylim_bottom=None):
     for directory, dataset in SCENES:
         if dataset not in datasets:
             continue
-        columns = load_log(directory)
+        columns = logs[directory]
         iterations, values = columns["iteration"], columns[key]
 
         smoothed = moving_average(values, WINDOW)
@@ -122,51 +124,50 @@ def draw_panel(axes, title, datasets, key, ylabel, log_scale, legend_loc, show_l
     )
     axes.set_xlabel("反復数")
     axes.set_ylabel(ylabel)
-    axes.set_title(title, fontsize=10)
+    axes.set_title(title, fontsize=11)
     axes.grid(True, which="major", linewidth=0.4, alpha=0.35)
     if log_scale:
         axes.grid(True, which="minor", linewidth=0.3, alpha=0.18)
     axes.set_axisbelow(True)
 
-    if show_legend:
-        # One representative line per dataset, so the legend stays at dataset level.
-        axes.legend(
-            handles=[Line2D([], [], color=COLOURS[name], linewidth=1.6, label=name)
-                     for name in datasets],
-            loc=legend_loc,
-            frameon=True,
-            framealpha=0.9,
-            fontsize=9,
-        )
+    # One representative line per dataset, so the legend stays at dataset level.
+    axes.legend(
+        handles=[Line2D([], [], color=COLOURS[name], linewidth=1.6, label=name)
+                 for name in datasets],
+        loc=legend_loc,
+        frameon=True,
+        framealpha=0.9,
+        fontsize=9,
+    )
 
 
 def main() -> None:
     plt.rcParams["font.family"] = ["Noto Sans CJK JP", "DejaVu Sans"]
     plt.rcParams["axes.unicode_minus"] = False
 
-    figure, grid = plt.subplots(2, 2, figsize=(12, 8))
-    for row, (group_title, datasets) in enumerate(ROWS):
-        for column, (key, ylabel, log_scale, legend_loc) in enumerate(COLUMNS):
-            metric = "損失" if key == "loss_total" else "PSNR"
+    logs = {directory: load_log(directory) for directory, _ in SCENES}
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    for key, filename, figure_title, ylabel, log_scale, legend_loc in FIGURES:
+        figure, panels = plt.subplots(2, 1, figsize=(8, 8))
+        for index, (axes, (title, datasets)) in enumerate(zip(panels, PANELS)):
             draw_panel(
-                grid[row][column],
-                f"{metric}｜{group_title}",
+                axes,
+                logs,
+                title,
                 datasets,
                 key,
                 ylabel,
                 log_scale,
                 legend_loc,
-                show_legend=(row == 0),
-                ylim_bottom=YLIM_BOTTOM.get((row, key)),
+                ylim_bottom=YLIM_BOTTOM.get((index, key)),
             )
 
-    figure.suptitle(
-        f"学習損失とPSNRの推移（{WINDOW}区間移動平均）", fontsize=12
-    )
-    figure.tight_layout(rect=(0, 0, 1, 0.96))
-    OUT.parent.mkdir(parents=True, exist_ok=True)
-    figure.savefig(OUT, dpi=300)
-    print(f"wrote {OUT}")
+        figure.suptitle(f"{figure_title}（{WINDOW}区間移動平均）", fontsize=12)
+        figure.tight_layout(rect=(0, 0, 1, 0.97))
+        out = OUT_DIR / filename
+        figure.savefig(out, dpi=300)
+        plt.close(figure)
+        print(f"wrote {out}")
 
 
 if __name__ == "__main__":
