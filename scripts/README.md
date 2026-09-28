@@ -55,8 +55,13 @@ python -m venv /tmp/plotenv && /tmp/plotenv/bin/pip install matplotlib
 | --- | --- |
 | `train.py` | 単一シーンの学習 |
 | `train_4d.py` | 動的シーンをフレームごとに学習（前フレームから warm-start） |
-| `render.py` | 学習済みチェックポイントからの描画 |
-| `evaluate.py` | PSNR / SSIM / LPIPS の評価 |
+| `warmstart_trainer.py` | warm-start あり（`train_4d.py`）/ なし（`train.py` をフレームごと）を同条件で回すドライバ。`runs/4DGS_*.sh` の学習段 |
+| `rebuild_manifest_4d.py` | 4D ランの `frames_4d.json` を `frame_NNNN/checkpoints` から作り直す（再開すると前半が消えるため） |
+| `rendering/render_3d.py` | 学習済みチェックポイントからの描画 |
+| `rendering/render_4d.py` | 4D ラン（`frame_NNNN/` ごとのチェックポイント）を 1 プロセスで全フレーム描画 |
+| `rendering/make_video.py` | `render_4d.py` の連番 PNG をカメラごとの mp4 に |
+| `rendering/benchmark_fps.py` | チェックポイントの描画 FPS（ラスタライズ 1 回の時間）を実測 |
+| `evaluate.py` | PSNR / SSIM / D-SSIM / MS-SSIM / LPIPS の評価。`--checkpoint` でチェックポイントから、`--render-dir` で描画済み画像から |
 | `warmstart_iteration_sweep.py` | warm-start の 1 フレームあたり iteration 数を振って比較 |
 | `plot_warmstart_sweep.py` | 上の `results.csv` から図と飽和/ドリフト分析を生成 |
 | `run_paper_benchmark.py` | 全21シーンのベンチマーク実行 |
@@ -101,3 +106,36 @@ python scripts/plot_warmstart_sweep.py \
 ガウシアン数を固定し、位置 LR を固定値にしてある（iteration 数を変えたときに
 学習率スケジュールまで変わるのを防ぐため）。これらの上書きは carry-over した
 フレームにしか効かないので、frame 1 の静的学習の挙動は変わらない。
+
+## evaluate.py — 画質評価
+
+| モード | 入力 | 出力 |
+| --- | --- | --- |
+| チェックポイント (`--checkpoint --data --split --output`) | チェックポイント + データセット（その場で描画） | 画像ごとの PSNR / SSIM / LPIPS を JSON |
+| 画像 (`--render-dir --gt-dir --dataset`) | 描画済み PNG + GT PNG | `--output-csv` (`metrics.csv`) / `--json-out` (`summary.json`、カメラ別) / `--per-frame-csv` (`per_frame.csv`) |
+
+```bash
+python scripts/evaluate.py --dataset nerf_synthetic \
+    --render-dir output/3DGS/nerf_synthetic/lego/renders \
+    --gt-dir     data/static/nerf_synthetic/lego/test \
+    --output-csv output/3DGS/nerf_synthetic/lego/results/metrics.csv
+```
+
+画像モードは、学習を再実行せずに測り直したいときや、4D のフレーム系列（`rendering/render_4d.py` の出力）を
+まとめて測るときに使う。`--dataset` で指標の組み合わせが決まる（`dnerf` / `nerf_synthetic` / `colmap` は
+PSNR・SSIM・LPIPS、`neu3d` は PSNR・D-SSIM・LPIPS、`hypernerf` は PSNR・MS-SSIM）。
+
+- **実装はどちらのモードも共通。** PSNR は `evaluation/metrics.py`、SSIM / D-SSIM は `training/losses.py`、
+  LPIPS は `LPIPSMetric`（VGG）を使うので、同じ画像なら同じ数値になる。MS-SSIM だけは本体に実装が無いので
+  torchmetrics を使う（`pip install -e ".[eval]"`）。
+- **旧 `eval/evaluate.py` の数値とは比べない。** 旧版は torchmetrics の SSIM を使っていたので、過去の
+  `metrics.csv` / `per_frame.csv` とは SSIM / D-SSIM が小数第 2〜3 位で一致しない。
+- **画像の対応付け**（`evaluation/images.py: collect_image_pairs`）は「相対パス一致 → ファイル名 (stem) 一致」の順。
+  `render_3d.py` は画像名のベース名だけをフラットに書くので、GT がサブディレクトリにあっても
+  ファイル名で引ける。NeRF Synthetic の `test/` に混ざる `*_depth_*` / `*_normal_*` は GT から除外する。
+  4D はフレーム間でファイル名 (`cam00.png` など) が重なるので、`render_4d.py` が GT を
+  `gt/frame_NNNN/` にミラーして相対パスで一致させる。
+- **`--rgba-background` は学習 config の `data.rgba_background` と揃える。** 食い違うと透明背景の色が変わり、
+  PSNR が大きく落ちる。
+- D-SSIM は `1 - SSIM`（本体の `dssim_loss`）。文献によっては `(1 - SSIM) / 2` を指すので、他の数値と比べるときは注意。
+- 完全一致で `+inf` になった PSNR は平均から除く。

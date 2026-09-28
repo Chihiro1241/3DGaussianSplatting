@@ -1,10 +1,10 @@
 """
-eval/visualize_gaussians.py
+eval/visualization/visualize_gaussians.py
 チェックポイントから Gaussian の位置・色・不透明度を読み込み、
 上面/正面/側面の 2D 投影 (PNG) と 3D 散布図 (HTML) を生成する。
 
 使い方:
-    python eval/visualize_gaussians.py \
+    python eval/visualization/visualize_gaussians.py \
         --ckpt_dir output/4DGS/neu3d/coffee_martini/baseline_30k/frame_0001 \
         --out_dir  output/4DGS/neu3d/coffee_martini/baseline_30k/gaussian_viz \
         --frame    1

@@ -1,9 +1,9 @@
 """
-eval/make_eval_report.py
+eval/report/make_eval_report.py
 学習ランの成果物から eval.md (実行結果レポート) を生成する。
 
 使い方:
-    python eval/make_eval_report.py \
+    python eval/report/make_eval_report.py \
         --run_dir output/4DGS/neu3d/cook_spinach/cook_spinach_baseline_7k \
         --compare output/4DGS/neu3d/cook_spinach/cook_spinach_baseline_30k
 
@@ -28,6 +28,8 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 from statistics import mean, pstdev
+
+TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
 
 UNKNOWN = "要追記"
 HUMAN_MARK = "<!-- human -->"
@@ -660,7 +662,7 @@ def main() -> int:
     parser.add_argument("--mode", choices=("auto", "3d", "4d"), default="auto",
                         help="既定 auto。run_dir に frame_* があれば 4d、無ければ 3d")
     parser.add_argument("--template", type=Path, default=None,
-                        help="既定は mode に応じて eval/templates/eval_{3d,4d}.md")
+                        help="既定は mode に応じて eval/report/templates/eval_{3d,4d}.md")
     parser.add_argument("--out", type=Path, default=None, help="既定は <run_dir>/eval.md")
     parser.add_argument("--compare", type=Path, action="append", default=[],
                         help="比較表に並べる別ランの run_dir (複数可)")
@@ -680,7 +682,7 @@ def main() -> int:
     mode = args.mode
     if mode == "auto":
         mode = "4d" if any(run_dir.glob("frame_*/")) else "3d"
-    template_path = args.template or Path(f"eval/templates/eval_{mode}.md")
+    template_path = args.template or TEMPLATE_DIR / f"eval_{mode}.md"
     template = template_path.read_text(encoding="utf-8")
 
     if mode == "3d":

@@ -1,10 +1,10 @@
 """
-eval/gaussian_viz_report.py
-eval/visualize_gaussians.py が書いた PNG / HTML / summary を 1 枚の
+eval/visualization/gaussian_viz_report.py
+eval/visualization/visualize_gaussians.py が書いた PNG / HTML / summary を 1 枚の
 比較ページにまとめる。
 
 使い方:
-    python eval/gaussian_viz_report.py \
+    python eval/visualization/gaussian_viz_report.py \
         --viz_dir output/4DGS/neu3d/coffee_martini/baseline_30k/gaussian_viz \
         --frames  1 50 100 150 200 250 300
 

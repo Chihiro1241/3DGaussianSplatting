@@ -26,7 +26,6 @@ dev = [
 ]
 eval = [
   "torchmetrics[image]>=1.0.0,<2",
-  "scikit-image>=0.21.0,<1",
 ]
 viz = [
   "streamlit>=1.46,<2",

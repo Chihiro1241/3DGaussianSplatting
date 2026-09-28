@@ -1,10 +1,10 @@
 """
-eval/warmstart_trainer.py
+scripts/warmstart_trainer.py
 warm-start あり / なし を同じ条件で回すためのドライバ。
 
 使い方:
     # warm-start あり
-    python eval/warmstart_trainer.py \
+    python scripts/warmstart_trainer.py \
         --source_path data/neu3d/coffee_martini/converted_4d \
         --output_dir  output/4DGS/neu3d/coffee_martini/warmstart_neu3d_trial \
         --config      configs/neu3d/trial_5000.yaml \
@@ -12,7 +12,7 @@ warm-start あり / なし を同じ条件で回すためのドライバ。
         --image-directory images --render-backend cuda
 
     # warm-start なし (baseline)
-    python eval/warmstart_trainer.py ... --no_warmstart
+    python scripts/warmstart_trainer.py ... --no_warmstart
 
 ----------------------------------------------------------------------------
 なぜ新しい学習ループを書かないのか
@@ -32,7 +32,7 @@ optimizer の Adam モーメント・位置 LR スケジュール・ADC 統計�
 
 どちらも出力を ``<output_dir>/frame_NNNN/`` に揃え、warm-start なし側でも
 ``frames_4d.json`` 互換のマニフェストを書く。こうすると後段の
-``eval/loss_logger.py`` が両者を同じ手順で CSV 化できる。
+``eval/plot/plot_loss.py`` が両者を同じ手順で読める。
 
 ----------------------------------------------------------------------------
 5000 iter で回すときの注意

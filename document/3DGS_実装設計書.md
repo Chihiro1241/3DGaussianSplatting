@@ -203,7 +203,8 @@ def world_to_camera(means_world, rotation_cw, translation_cw):
 │           └── ply_io.py
 ├── scripts/
 │   ├── train.py
-│   ├── render.py
+│   ├── rendering/
+│   │   └── render_3d.py
 │   └── evaluate.py
 └── tests/
     ├── unit/
@@ -767,7 +768,7 @@ Blenderのカメラ情報と画像の変換規約を次のように固定する�
 | スクリプト | 主な引数 | 処理 |
 |---|---|---|
 | `scripts/train.py` | `--data`, `--config`, `--output`, `--resume CHECKPOINT` | データ読み込み、初期化または再開、学習、定期保存 |
-| `scripts/render.py` | `--data`, `--checkpoint`, `--split`, `--output` | 指定視点をレンダリングしてPNGへ保存 |
+| `scripts/rendering/render_3d.py` | `--data`, `--checkpoint`, `--split`, `--output` | 指定視点をレンダリングしてPNGへ保存 |
 | `scripts/evaluate.py` | `--data`, `--checkpoint`, `--split`, `--output` | 各画像のPSNRと平均PSNRを計算して指定先のJSONへ保存 |
 
 `--resume`は真偽値フラグではなく、再開元の`.pt`チェックポイントパスを受け取る任意引数とする。指定時は新規初期化を行わず、9.2節の全状態を復元する。`evaluate.py`の`--output`は出力JSONのファイルパスを受け取る必須引数とする。各スクリプトの`main()`は引数解析と依存関係の組み立てのみを担当し、数式処理を直接実装しない。
@@ -776,7 +777,7 @@ Blenderのカメラ情報と画像の変換規約を次のように固定する�
 
 ```bash
 python scripts/train.py --data data --config configs/default.yaml --output output/3DGS/blender/run001_example
-python scripts/render.py --data data --checkpoint output/3DGS/blender/run001_example/checkpoints/latest.pt --split test --output output/3DGS/blender/run001_example/renders/test
+python scripts/rendering/render_3d.py --data data --checkpoint output/3DGS/blender/run001_example/checkpoints/latest.pt --split test --output output/3DGS/blender/run001_example/renders/test
 python scripts/evaluate.py --data data --checkpoint output/3DGS/blender/run001_example/checkpoints/latest.pt --split test --output output/3DGS/blender/run001_example/metrics/evaluation.json
 ```
 

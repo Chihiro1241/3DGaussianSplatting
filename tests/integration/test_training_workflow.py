@@ -345,7 +345,7 @@ def test_checkpoint_resume_reproduces_next_camera_loss_and_update(
     ("script", "required_option"),
     [
         ("train.py", "--resume"),
-        ("render.py", "--checkpoint"),
+        ("rendering/render_3d.py", "--checkpoint"),
         ("evaluate.py", "--output"),
     ],
 )

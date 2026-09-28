@@ -1,9 +1,9 @@
 """
-eval/benchmark_fps.py
+scripts/rendering/benchmark_fps.py
 学習済みチェックポイントのレンダリング速度 (FPS) を測る。
 
 使い方:
-    python eval/benchmark_fps.py \
+    python scripts/rendering/benchmark_fps.py \
         --run_dir output/4DGS/neu3d/coffee_martini/baseline_30k \
         --data_dir data/neu3d/coffee_martini/converted_4d \
         --frames 1 50 100 150 200 250 300
@@ -31,7 +31,7 @@ from pathlib import Path
 
 import torch
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 for root in (REPO_ROOT / "src",):
     if root.is_dir() and str(root) not in sys.path:
         sys.path.insert(0, str(root))

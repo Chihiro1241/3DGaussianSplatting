@@ -357,7 +357,7 @@ def discover_snapshot_frames(root: str | Path) -> dict[int, Path]:
     if not frames:
         raise FileNotFoundError(
             f"no snapshot index below {base}; train with --snapshot-interval "
-            "or run eval/extract_snapshots.py on an existing run"
+            "or run eval/visualization/extract_snapshots.py on an existing run"
         )
     return dict(sorted(frames.items()))
 

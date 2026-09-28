@@ -22,7 +22,7 @@
 # 一括ベンチマークとの違いは、任意のシーンだけを回せることと、描画と
 # 画像ベース評価まで面倒を見ること。
 #
-# 旧スクリプト (run_3dgs_static.sh ほか) は eval/archive/ に退避してある。
+# 旧スクリプト (run_3dgs_static.sh ほか) は削除した (git show d8d4dee:eval/archive/run_3dgs_static.sh で読める)。
 
 set -uo pipefail
 
@@ -62,9 +62,8 @@ run_step () {
 #   DATA_ROOT     : シーンディレクトリの親
 #   OUT_DATASET   : output/3DGS/<OUT_DATASET>/ の名前
 #   CONFIG        : 背景色が違うので synthetic と real で分かれる
-#   EVAL_DATASET  : eval/evaluate.py の --dataset (指標セットの選択)
+#   EVAL_DATASET  : scripts/evaluate.py の --dataset (指標セットの選択)
 #                   CSV は output/3DGS/<OUT_DATASET>/<scene>/results/metrics.csv に出る。
-#                   eval/summarize.py はディレクトリ名から指標セットを決める
 #   RGBA_BG       : 学習 config の data.rgba_background と必ず揃える
 #                   (食い違うと透明背景が黒く読まれて PSNR が 1dB 台に落ちる)
 # ---------------------------------------------------------------------------
@@ -219,7 +218,7 @@ run_scene () {
             return 1
         fi
         run_step mkdir -p "$render_dir"
-        run_step python scripts/render.py \
+        run_step python scripts/rendering/render_3d.py \
             --data "$data_dir" --checkpoint "$final_ckpt" --split test \
             --output "$render_dir" --image-directory "$image_dir" \
             --render-backend "$RENDER_BACKEND" \
@@ -228,17 +227,16 @@ run_scene () {
     fi
 
     # ------------------------------------------- 4. 画像ベース評価 (CSV)
-    # ラン直下の results/ に置く。eval/summarize.py は
-    # ディレクトリ名から指標セットを引くので、ファイル名はシーン名だけでよい。
+    # ラン直下の results/metrics.csv に置く (make_eval_report.py がこの名前で読む)。
     if want eval; then
         echo ""
         echo "--- 画像ベース評価 (背景 ${RGBA_BG}) ---"
         run_step mkdir -p "$result_dir"
-        run_step python eval/evaluate.py \
+        run_step python scripts/evaluate.py \
             --dataset "$EVAL_DATASET" \
-            --render_dir "$render_dir" --gt_dir "$gt_dir" \
-            --output_csv "$result_dir/metrics.csv" \
-            --rgba_background "$RGBA_BG" --device "$DEVICE" \
+            --render-dir "$render_dir" --gt-dir "$gt_dir" \
+            --output-csv "$result_dir/metrics.csv" \
+            --rgba-background "$RGBA_BG" --device "$DEVICE" \
             || { echo "[失敗] 画像ベース評価: $scene"; return 1; }
     fi
 
@@ -247,7 +245,7 @@ run_scene () {
     if want report; then
         echo ""
         echo "--- eval.md 生成 ---"
-        run_step python eval/make_eval_report.py \
+        run_step python eval/report/make_eval_report.py \
             --run_dir "$run_dir" --tag "$scene" \
             --results_dir "$result_dir" \
             --render_backend "$RENDER_BACKEND" \

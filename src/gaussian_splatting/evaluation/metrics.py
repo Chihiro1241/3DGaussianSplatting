@@ -69,6 +69,23 @@ def psnr(rendered: Tensor, target: Tensor, image_max: float = 1.0) -> Tensor:
     )
 
 
+def ms_ssim(rendered: Tensor, target: Tensor) -> Tensor:
+    """Return multi-scale SSIM for ``(3,H,W)`` images in the ``[0, 1]`` range.
+
+    The reference implementation has no MS-SSIM of its own, so this defers to
+    torchmetrics (the ``eval`` extra).  HyperNeRF results are reported with it.
+    """
+
+    _validate_pair(rendered, target)
+    from torchmetrics.functional.image import (
+        multiscale_structural_similarity_index_measure,
+    )
+
+    return multiscale_structural_similarity_index_measure(
+        rendered.unsqueeze(0), target.unsqueeze(0), data_range=1.0
+    )
+
+
 def mean_psnr(values: Tensor | list[Tensor]) -> Tensor:
     """Return the arithmetic mean of per-view PSNR values.
 

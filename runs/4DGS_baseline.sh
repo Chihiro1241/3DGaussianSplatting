@@ -30,7 +30,7 @@
 #     既定の white のままだと PSNR が不当に下がる。
 #   * 再開すると frames_4d.json が前半を失うため、描画前に必ず作り直す。
 #
-# 旧スクリプト (run_both_baselines.sh ほか) は eval/archive/ に退避してある。
+# 旧スクリプト (run_both_baselines.sh ほか) は削除した (git show d8d4dee:eval/archive/run_both_baselines.sh で読める)。
 
 set -uo pipefail
 
@@ -130,7 +130,7 @@ if want train; then
     if [ "$START" -gt "$END_FRAME" ]; then
         echo "frame ${END_FRAME} まで完了済み。学習をスキップします。"
     else
-        run_step python eval/warmstart_trainer.py \
+        run_step python scripts/warmstart_trainer.py \
             --source_path "$DATA_DIR" \
             --output_dir  "$RUN_DIR" \
             --config      "$CONFIG" \
@@ -157,12 +157,12 @@ if want render; then
     echo "############################################################"
     # 再開していると frames_4d.json がその実行で回した分しか持たないので、
     # 描画前に必ず作り直す。
-    run_step python eval/rebuild_manifest_4d.py \
+    run_step python scripts/rebuild_manifest_4d.py \
         --run_dir "$RUN_DIR" --source_path "$DATA_DIR" \
         --frame_count "$END_FRAME" \
         || note_failure "manifest"
     run_step mkdir -p "$RENDER_DIR"
-    if run_step python eval/render_4d.py \
+    if run_step python scripts/rendering/render_4d.py \
         --run_dir "$RUN_DIR" --data_dir "$DATA_DIR" --out_dir "$RENDER_DIR" \
         --split test --render-backend "$RENDER_BACKEND" --end_frame "$END_FRAME"
     then
@@ -183,21 +183,17 @@ if want eval && [ "$RENDER_FAILED" = "0" ]; then
     echo "############################################################"
     run_step mkdir -p "$RESULTS_DIR"
     # neu3d は背景黒で学習しているので rgba_background も black に揃える。
-    run_step python eval/evaluate.py \
+    run_step python scripts/evaluate.py \
         --dataset neu3d \
-        --render_dir "$RENDER_DIR/renders" --gt_dir "$RENDER_DIR/gt" \
-        --output_csv "$RESULTS_DIR/metrics.csv" \
-        --json_out "$RESULTS_DIR/summary.json" \
-        --device cuda --rgba_background black \
+        --render-dir "$RENDER_DIR/renders" --gt-dir "$RENDER_DIR/gt" \
+        --output-csv "$RESULTS_DIR/metrics.csv" \
+        --json-out "$RESULTS_DIR/summary.json" \
+        --per-frame-csv "$RESULTS_DIR/per_frame.csv" --block 10 \
+        --device cuda --rgba-background black \
         || note_failure "eval"
-    run_step python eval/evaluate_per_frame.py \
-        --render_dir "$RENDER_DIR/renders" --gt_dir "$RENDER_DIR/gt" \
-        --output_csv "$RESULTS_DIR/per_frame.csv" \
-        --dataset neu3d --device cuda --rgba_background black --block 10 \
-        || note_failure "eval/per_frame"
     # baseline は毎フレーム独立なので数は増えないはずだが、比較用に必ず残す。
-    run_step python eval/gaussian_count_trend.py \
-        --run_dir "$RUN_DIR" --block 10 \
+    run_step python eval/plot/plot_gaussian_count.py \
+        --run "$RUN_DIR" --block 10 \
         --output_csv "$RESULTS_DIR/gaussian_counts.csv" \
         || note_failure "eval/gaussian_counts"
 fi
@@ -208,11 +204,10 @@ if want video && [ "$RENDER_FAILED" = "0" ]; then
     echo "############################################################"
     echo "# 動画  $(date '+%m-%d %H:%M')"
     echo "############################################################"
-    # カメラごとに解像度が数 px 違うので、縦積みは make_videos_4d.py 側で
-    # 幅を揃えてから積んでいる。ffmpeg は 3dgs env のものを使う。
+    # カメラごとに 1 本 (<camera>.mp4)。ffmpeg は 3dgs env のものを使う。
     run_step mkdir -p "$VIDEO_DIR"
-    run_step python eval/make_videos_4d.py \
-        --render_root "$RENDER_DIR" --out_dir "$VIDEO_DIR" --fps 30 --crf 18 \
+    run_step python scripts/rendering/make_video.py \
+        --render-root "$RENDER_DIR" --out-dir "$VIDEO_DIR" --fps 30 --crf 18 \
         || note_failure "video"
 fi
 
@@ -227,7 +222,7 @@ if want viz; then
     for frame in $VIZ_FRAMES; do
         printf -v padded "%04d" "$frame"
         if [ -d "$RUN_DIR/frame_${padded}/checkpoints" ] || [ "$DRY_RUN" = "1" ]; then
-            if run_step python eval/visualize_gaussians.py \
+            if run_step python eval/visualization/visualize_gaussians.py \
                 --ckpt_dir "$RUN_DIR/frame_${padded}" \
                 --out_dir "$VIZ_DIR" --frame "$frame"
             then
@@ -238,7 +233,7 @@ if want viz; then
         fi
     done
     if [ -n "$viz_done" ]; then
-        run_step python eval/gaussian_viz_report.py --viz_dir "$VIZ_DIR" \
+        run_step python eval/visualization/gaussian_viz_report.py --viz_dir "$VIZ_DIR" \
             --frames $viz_done --title "Gaussian 可視化 — ${TAG}" \
             || note_failure "viz/report"
     fi
@@ -253,7 +248,7 @@ if want report; then
     # 人が書く節 (定性的評価 / AIによる初見) は既存 eval.md から引き継がれる。
     # 比較表に別ランを並べるときは COMPARE="<run_dir> <run_dir>" を渡す。
     report_command=(
-        python eval/make_eval_report.py
+        python eval/report/make_eval_report.py
         --run_dir "$RUN_DIR"
         --render_backend "$RENDER_BACKEND"
         --command "CONFIG=$CONFIG runs/4DGS_baseline.sh $SCENE $END_FRAME"

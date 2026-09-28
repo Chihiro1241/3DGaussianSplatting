@@ -1,19 +1,19 @@
 """
-eval/render_4d.py
+scripts/rendering/render_4d.py
 4D ラン (frame_NNNN/ ごとのチェックポイント) を全フレームぶんレンダリングし、
-eval/evaluate.py がそのまま食える render/GT のディレクトリ対を作る。
+scripts/evaluate.py の画像モードがそのまま食える render/GT のディレクトリ対を作る。
 
 使い方:
-    python eval/render_4d.py \
+    python scripts/rendering/render_4d.py \
         --run_dir  output/4DGS/neu3d/coffee_martini/warmstart_neu3d_full \
         --data_dir data/neu3d/coffee_martini/converted_4d \
         --out_dir  output/4DGS/neu3d/coffee_martini/warmstart_neu3d_full/renders \
         --split    test
 
 ----------------------------------------------------------------------------
-なぜ scripts/render.py をループで呼ばないのか
+なぜ scripts/rendering/render_3d.py をループで呼ばないのか
 ----------------------------------------------------------------------------
-scripts/render.py はチェックポイント 1 つを受け取る設計なので、300 フレーム x
+scripts/rendering/render_3d.py はチェックポイント 1 つを受け取る設計なので、300 フレーム x
 2 アームだと 600 回のプロセス起動と 600 回の CUDA 初期化が要る。ここでは
 同じ関数 (``render_camera_set``) を 1 プロセス内で呼ぶだけにする。
 本体のコードには手を入れない。
@@ -21,7 +21,7 @@ scripts/render.py はチェックポイント 1 つを受け取る設計なの�
 ----------------------------------------------------------------------------
 出力の形と、なぜ GT をミラーするのか
 ----------------------------------------------------------------------------
-eval/evaluate.py のペア照合は
+scripts/evaluate.py (gaussian_splatting.evaluation.images) のペア照合は
 
     1. render_dir からの相対パスが gt_dir 配下にそのまま在れば、それを使う
     2. 無ければファイル名 (stem) で引く
@@ -46,7 +46,7 @@ from pathlib import Path
 
 import torch
 
-_REPO_ROOT = Path(__file__).resolve().parents[1]
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO_ROOT / "src"))
 
 from gaussian_splatting.config import (  # noqa: E402
