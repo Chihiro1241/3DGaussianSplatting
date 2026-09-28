@@ -22,6 +22,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import gc
 import json
 import random
 import shutil
@@ -704,6 +705,12 @@ def main(argv: list[str] | None = None) -> int:
             _discard_checkpoints(frame_output_directory(args.output, frame_number - 1))
 
         del trainer, state, dataset, train_cameras, quarter, half, evaluation_cameras
+        # torch.save keeps the storages it serialized in a reference cycle
+        # (a function-local Pickler class and its persistent_id closure), so
+        # the checkpoint written above pins this frame's parameters and Adam
+        # state on the GPU until the cyclic collector happens to run.  Collect
+        # now so every frame starts from the same residual memory.
+        gc.collect()
         if device.type == "cuda":
             torch.cuda.empty_cache()
     return 0
