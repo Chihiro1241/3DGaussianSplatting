@@ -15,6 +15,7 @@
 #       Gaussian 可視化 -> eval.md 生成。GPU は 1 枚なので学習と描画は必ず直列にする。
 #
 # 環境変数:
+#   DATA_DIR="data/dynamic/neu3d/<SCENE>/converted_4d"  変換済みデータ
 #   CONFIG="configs/neu3d/warmstart_7000_full.yaml"  学習設定
 #   TAG="<scene>_<config 名>"                出力ディレクトリの名前
 #   RUN_DIR="output/4DGS/neu3d/<SCENE>/<TAG>"  ラン一式 (学習/描画/動画/可視化/評価)
@@ -39,7 +40,7 @@
 #   * config の checkpoint_interval は必ず iterations と同じにする。既定の
 #     1000 のまま 300 フレーム回すと 1 フレーム 30 個のチェックポイントが残り、
 #     ディスクが途中で溢れる。warmstart_7000_full.yaml は対処済み。
-#   * 評価の --rgba_background は black。neu3d は背景黒で学習するので、
+#   * 評価の --rgba-background は black。neu3d は背景黒で学習するので、
 #     既定の white のままだと PSNR が不当に下がる。
 #   * 再開すると frames_4d.json が前半を失うため、描画前に必ず作り直す。
 #
@@ -64,7 +65,7 @@ conda activate 3dgs
 SCENE="${1:-coffee_martini}"
 END_FRAME="${2:-300}"
 
-DATA_DIR="data/neu3d/${SCENE}/converted_4d"
+DATA_DIR="${DATA_DIR:-data/dynamic/neu3d/${SCENE}/converted_4d}"
 CONFIG="${CONFIG:-configs/neu3d/warmstart_7000_full.yaml}"
 TAG="${TAG:-${SCENE}_$(basename "$CONFIG" .yaml)}"
 SCENE_DIR="output/4DGS/neu3d/${SCENE}"
@@ -119,7 +120,7 @@ echo "=============================================================="
 
 if [ ! -d "$DATA_DIR" ]; then
     echo "[中止] データがありません: $DATA_DIR"
-    echo "       data/convert_neu3d.py / data/undistort_neu3d.py で変換してください。"
+    echo "       data/dynamic/neu3d/convert_neu3d.py / undistort_neu3d.py で変換してください。"
     exit 1
 fi
 if [ ! -f "$CONFIG" ]; then
@@ -277,7 +278,7 @@ if want report; then
     # 比較表に別ランを並べるときは COMPARE="<run_dir> <run_dir>" を渡す。
     report_command=(
         python eval/report/make_eval_report.py
-        --run_dir "$RUN_DIR"
+        --run_dir "$RUN_DIR" --data_dir "$DATA_DIR"
         --render_backend "$RENDER_BACKEND"
         --command "CONFIG=$CONFIG runs/4DGS_warmstart.sh $SCENE $END_FRAME"
     )
