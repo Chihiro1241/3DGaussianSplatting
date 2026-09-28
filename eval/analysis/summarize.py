@@ -8,7 +8,7 @@ scripts/evaluate.py (画像モード) が出力した CSV を読み、データ�
 ディレクトリ名から指標セットを決める。旧来のフラットな ``<dataset>_<scene>.csv``
 も引き続き読める (eval/archive/ のスクリプトが今もこの名前で出すため)。
 
-使い方: python eval/summarize.py --results_dir ./output
+使い方: python eval/analysis/summarize.py --results_dir ./output
 """
 import argparse
 import csv

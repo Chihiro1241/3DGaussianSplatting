@@ -1,9 +1,9 @@
 """
-eval/summarize_warmstart.py
+eval/analysis/summarize_warmstart.py
 warm-start あり / なし の収束を数値で突き合わせる。
 
 使い方:
-    python eval/summarize_warmstart.py \
+    python eval/analysis/summarize_warmstart.py \
         --warm_dir     output/4DGS/neu3d/coffee_martini/warmstart_neu3d_full/loss_logs \
         --baseline_dir output/4DGS/neu3d/coffee_martini/baseline_neu3d_full/loss_logs \
         --warm_run     output/4DGS/neu3d/coffee_martini/warmstart_neu3d_full \
@@ -36,12 +36,9 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
-from plot_loss import convergence_iteration, load_series  # noqa: E402
+from export_loss_csv import convergence_iteration, load_series
 
 AUTO_BLOCK_THRESHOLD = 20   # これ以下のフレーム数ならフレーム別に全部出す
 DEFAULT_BLOCK = 50

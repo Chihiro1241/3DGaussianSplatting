@@ -1,6 +1,6 @@
 # {{TITLE}}
 
-<!-- このファイルは eval/make_eval_report.py が生成する。
+<!-- このファイルは eval/report/make_eval_report.py が生成する。
      human マーカーが付いた節 (定性的評価 / AIによる初見) は人が書く節であり、
      再生成しても上書きされない。機械的に取得できなかった値は「要追記」と書かれる。
      生成日時: {{GENERATED_AT}} -->
@@ -17,24 +17,25 @@
 - ビューア : {{VIEWER}}
 
 ## 使用したデータセット
-- {{DATASET_NAME}} / シーン {{SCENE}}
-  - データパス : {{DATA_PATH}}
-  - 画像ディレクトリ : {{IMAGE_DIRECTORY}}
-  - 画像枚数 : {{IMAGE_SPLIT}}
-  - 解像度 : {{RESOLUTION}}
-  - 背景色 : {{BACKGROUND}}
-  - train / test split : {{TEST_SPLIT}}
+- {{DATASET_NAME}}
+  - {{SOURCE_VIDEO}}
+  - {{FRAME_COUNT}} frames に分解して使用する
+  - 解像度 {{RESOLUTION}}
+  - カメラ数は {{CAMERA_COUNT}} 台
+  - test view は {{TEST_VIEWS}} ({{TEST_EVERY}})
+  - 評価対象は {{EVAL_IMAGE_COUNT}} 枚
 
 ## 実験方法
 {{METHOD}}
+{{SFM_NOTE}}
 
 | 項目 | 設定値 |
 |---|---|
 | iterations | {{ITERATIONS}} |
-| 評価 milestone | {{MILESTONES}} |
 | 初期化 | {{INITIALIZATION}} |
 | 初期 Gaussian 数 | {{INITIAL_GAUSSIANS}} |
 | SH degree | {{SH_DEGREE}} |
+| 背景色 | {{BACKGROUND}} |
 | densify_from / until / interval | {{DENSIFY_SCHEDULE}} |
 | opacity_reset_interval | {{OPACITY_RESET_INTERVAL}} |
 | 密度制御イベント / 不透明度リセット | {{ADC_EVENT_COUNTS}} |
@@ -50,28 +51,23 @@
 - Commit : {{GIT_COMMIT}}
 - Working tree : {{GIT_DIRTY}}
 - 実行コマンド : {{COMMAND}}
-- 実行時の historical command : {{HISTORICAL_COMMAND}}
 - 実行期間 : {{RUN_PERIOD}}
 - config : {{CONFIG_PATH}}
 
 ## 評価
+| | test PSNR ↑ | D-SSIM ↓ | LPIPS ↓ | Gaussian数 | train time | VRAM (peak reserved) | 出力容量 |
+|---|---|---|---|---|---|---|---|
+{{RESULT_ROWS}}
 
-チェックポイント評価 (`metrics/test_<iteration>.json`、test view {{TEST_VIEW_COUNT}} 枚):
+カメラ別 test PSNR:
 
-| iteration | PSNR ↑ | SSIM ↑ | LPIPS ↓ | Gaussian数 | 学習時間 | checkpoint |
-|---|---|---|---|---|---|---|
-{{MILESTONE_ROWS}}
+{{CAMERA_TABLE}}
 
-画像ベース評価 (`scripts/evaluate.py` 画像モード、描画済み PNG 対 GT): {{IMAGE_EVAL}}
+フレーム別の推移: {{FRAME_TREND}}
 
-学習経過:
-
-| iteration | loss | PSNR (学習ビュー) | Gaussian数 |
-|---|---|---|---|
-{{PROGRESS_ROWS}}
-
-VRAM : {{VRAM}}
-異常終了・NaN/Inf/OOM : {{ANOMALIES}}
+Gaussian 数: 平均 {{GAUSSIAN_MEAN}} (最小 {{GAUSSIAN_MIN}} / 最大 {{GAUSSIAN_MAX}} / 標準偏差 {{GAUSSIAN_STD}})
+学習ビュー PSNR (各フレーム最終 iteration): {{TRAIN_VIEW_PSNR}}
+異常終了・NaN/Inf/OOM: {{ANOMALIES}}
 
 ## 出力ファイル
 {{ARTIFACTS}}

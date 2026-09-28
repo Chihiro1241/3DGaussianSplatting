@@ -220,7 +220,7 @@ if want eval && [ "$RENDER_FAILED" = "0" ]; then
         || note_failure "eval"
     # warm-start はガウシアン数が単調に増えうる。増加の度合いはこの CSV でしか
     # 追えないので必ず残す (本スクリプトは増加を理由に中断はしない)。
-    run_step python eval/gaussian_count_trend.py \
+    run_step python eval/analysis/gaussian_count_trend.py \
         --run_dir "$RUN_DIR" --block 10 \
         --output_csv "$RESULTS_DIR/gaussian_counts.csv" \
         || note_failure "eval/gaussian_counts"
@@ -276,7 +276,7 @@ if want report; then
     # 人が書く節 (定性的評価 / AIによる初見) は既存 eval.md から引き継がれる。
     # 比較表に別ランを並べるときは COMPARE="<run_dir> <run_dir>" を渡す。
     report_command=(
-        python eval/make_eval_report.py
+        python eval/report/make_eval_report.py
         --run_dir "$RUN_DIR"
         --render_backend "$RENDER_BACKEND"
         --command "CONFIG=$CONFIG runs/4DGS_warmstart.sh $SCENE $END_FRAME"

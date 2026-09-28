@@ -32,7 +32,7 @@ optimizer の Adam モーメント・位置 LR スケジュール・ADC 統計�
 
 どちらも出力を ``<output_dir>/frame_NNNN/`` に揃え、warm-start なし側でも
 ``frames_4d.json`` 互換のマニフェストを書く。こうすると後段の
-``eval/export_loss_csv.py`` が両者を同じ手順で CSV 化できる。
+``eval/analysis/export_loss_csv.py`` が両者を同じ手順で CSV 化できる。
 
 ----------------------------------------------------------------------------
 5000 iter で回すときの注意

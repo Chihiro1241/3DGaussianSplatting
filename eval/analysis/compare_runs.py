@@ -1,16 +1,16 @@
 """
-eval/compare_runs.py
+eval/analysis/compare_runs.py
 2 つのランの評価 CSV を突き合わせて、カメラ別・ブロック別に並べる。
 
 使い方:
     # フレーム別 CSV (per_frame.csv) 同士 — カメラ別 + フレームブロック別
-    python eval/compare_runs.py \
+    python eval/analysis/compare_runs.py \
         --a output/4DGS/neu3d/coffee_martini/baseline_30k/results/per_frame.csv --a_label "30,000 iter" \
         --b output/4DGS/neu3d/coffee_martini/baseline_7k/results/per_frame.csv  --b_label "7,000 iter" \
         --block 10
 
     # per-image CSV (metrics.csv) 同士 — カメラ別のみ
-    python eval/compare_runs.py \
+    python eval/analysis/compare_runs.py \
         --a output/4DGS/neu3d/coffee_martini/warmstart_neu3d_full/results/metrics.csv --a_label warm-start \
         --b output/4DGS/neu3d/coffee_martini/baseline_neu3d_full/results/metrics.csv  --b_label baseline
 

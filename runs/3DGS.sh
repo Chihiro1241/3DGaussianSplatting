@@ -64,7 +64,7 @@ run_step () {
 #   CONFIG        : 背景色が違うので synthetic と real で分かれる
 #   EVAL_DATASET  : scripts/evaluate.py の --dataset (指標セットの選択)
 #                   CSV は output/3DGS/<OUT_DATASET>/<scene>/results/metrics.csv に出る。
-#                   eval/summarize.py はディレクトリ名から指標セットを決める
+#                   eval/analysis/summarize.py はディレクトリ名から指標セットを決める
 #   RGBA_BG       : 学習 config の data.rgba_background と必ず揃える
 #                   (食い違うと透明背景が黒く読まれて PSNR が 1dB 台に落ちる)
 # ---------------------------------------------------------------------------
@@ -228,7 +228,7 @@ run_scene () {
     fi
 
     # ------------------------------------------- 4. 画像ベース評価 (CSV)
-    # ラン直下の results/ に置く。eval/summarize.py は
+    # ラン直下の results/ に置く。eval/analysis/summarize.py は
     # ディレクトリ名から指標セットを引くので、ファイル名はシーン名だけでよい。
     if want eval; then
         echo ""
@@ -247,7 +247,7 @@ run_scene () {
     if want report; then
         echo ""
         echo "--- eval.md 生成 ---"
-        run_step python eval/make_eval_report.py \
+        run_step python eval/report/make_eval_report.py \
             --run_dir "$run_dir" --tag "$scene" \
             --results_dir "$result_dir" \
             --render_backend "$RENDER_BACKEND" \

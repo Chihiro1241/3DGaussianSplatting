@@ -1,5 +1,5 @@
 """
-eval/export_loss_csv.py
+eval/analysis/export_loss_csv.py
 学習ログ ``train_log.jsonl`` の損失を、フレームごとの CSV へ書き出す。
 
 本体の Trainer は ``<run>/train_log.jsonl`` へ 100 iter ごとに
@@ -10,7 +10,7 @@ eval/export_loss_csv.py
 
 使い方::
 
-    python eval/export_loss_csv.py \
+    python eval/analysis/export_loss_csv.py \
         --run_dir output/4DGS/dnerf/lego/experiments/warmstart \
         --out_dir output/4DGS/dnerf/lego/experiments/warmstart/loss_logs
 
@@ -32,6 +32,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import math
 from pathlib import Path
 
 SUMMARY_MARKER = "*** LAST100_MEAN ***"
@@ -72,6 +73,73 @@ def rows_from_train_log(path: Path, loss_key: str = "loss_total") -> list[tuple[
             rows.append((int(record["iteration"]), float(record[loss_key])))
     rows.sort(key=lambda item: item[0])
     return rows
+
+
+# ---- 読み込み側 (plot_loss.py / summarize_warmstart.py が使う) ----
+def read_frame_csv(path: Path) -> tuple[list[int], list[float], float]:
+    """(iters, losses, last100_mean) を返す。"""
+    iters: list[int] = []
+    losses: list[float] = []
+    summary = float("nan")
+    with path.open(newline="", encoding="utf-8") as stream:
+        for row in csv.DictReader(stream):
+            raw_iter = (row.get("iter") or "").strip()
+            raw_loss = (row.get("loss") or "").strip()
+            if not raw_loss:
+                continue
+            if raw_iter == SUMMARY_MARKER:
+                summary = float(raw_loss)
+                continue
+            try:
+                iters.append(int(raw_iter))
+                losses.append(float(raw_loss))
+            except ValueError:
+                continue
+    if math.isnan(summary) and losses:
+        last = iters[-1]
+        window = [l for i, l in zip(iters, losses) if i > last - 100] or [losses[-1]]
+        summary = sum(window) / len(window)
+    return iters, losses, summary
+
+
+def load_series(log_dir: Path) -> list[dict]:
+    """frame_*.csv を番号順に読む。"""
+    if not log_dir.is_dir():
+        raise FileNotFoundError(f"ログディレクトリがありません: {log_dir}")
+    series = []
+    for path in sorted(log_dir.glob("frame_*.csv")):
+        iters, losses, summary = read_frame_csv(path)
+        if not iters:
+            print(f"  [スキップ] {path.name}: データ点なし")
+            continue
+        series.append(
+            {
+                "name": path.stem,
+                "frame": int(path.stem.split("_")[-1]),
+                "iters": iters,
+                "losses": losses,
+                "final": summary,
+                "converged_iter": convergence_iteration(iters, losses),
+            }
+        )
+    return series
+
+
+def convergence_iteration(iters: list[int], losses: list[float],
+                          fraction: float = 0.10) -> int | None:
+    """損失が初期値の ``fraction`` 以下へ最初に落ちた iteration。
+
+    warm-start では初期損失そのものが低いため、この指標は
+    「その run の中でどれだけ下がったか」の相対量であり、
+    run 間の絶対比較には使えない点に注意 (HTML 側にも注記を出す)。
+    """
+    if not losses:
+        return None
+    threshold = losses[0] * fraction
+    for iteration, loss in zip(iters, losses):
+        if loss <= threshold:
+            return iteration
+    return None
 
 
 def _frame_run_directories(run_dir: Path) -> list[Path]:

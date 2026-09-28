@@ -5,6 +5,14 @@
 `eval/` はそれらが書き出した CSV・チェックポイント・ログを読んで集計・比較・
 可視化する道具を置く場所である。
 
+```
+eval/
+├── analysis/       CSV・学習ログを読んで数値や損失曲線を出す (集計・比較・plot_loss)
+├── report/         ラン 1 本の eval.md を生成 (make_eval_report.py + templates/)
+├── visualization/  ガウシアン分布の投影・学習過程ビューワー
+└── archive/        退役したシェルスクリプト (過去の実行記録)
+```
+
 ## ツール索引
 
 工程順。**自動**列が ● のものは `runs/3DGS.sh` / `runs/4DGS_baseline.sh` /
@@ -36,17 +44,17 @@
 | ツール | 用途 | 主な入力 → 出力 | 自動 |
 |---|---|---|---|
 | `scripts/evaluate.py` (画像モード) | 画像対から PSNR/SSIM/D-SSIM/MS-SSIM/LPIPS | `--render-dir --gt-dir` → `--output-csv` (`metrics.csv`)、`--json-out` (`summary.json`、カメラ別)、`--per-frame-csv` (`per_frame.csv`) | ● |
-| `gaussian_count_trend.py` | ガウシアン数・時間・VRAM の推移 | `--run_dir` → `--output_csv` (`gaussian_counts.csv`) | ● |
-| `export_loss_csv.py` | `train_log.jsonl` を損失 CSV へ変換 | `--run_dir` → `--out_dir` (`loss_logs/`) | ○ |
+| `analysis/gaussian_count_trend.py` | ガウシアン数・時間・VRAM の推移 | `--run_dir` → `--output_csv` (`gaussian_counts.csv`) | ● |
+| `analysis/export_loss_csv.py` | `train_log.jsonl` を損失 CSV へ変換 | `--run_dir` → `--out_dir` (`loss_logs/`) | ○ |
 
 ### 4. 集計・比較・レポート
 
 | ツール | 用途 | 主な入力 → 出力 | 自動 |
 |---|---|---|---|
-| `summarize.py` | 全データセットを論文値と並べる | `--results_dir output` → 標準出力 | ○ |
-| `compare_runs.py` | 2 ランを突き合わせる（カメラ別 / フレームブロック別） | `--a --b` (`per_frame.csv` でも `metrics.csv` でも可) → 標準出力 | ○ |
-| `summarize_warmstart.py` | warm-start と baseline の収束比較 | `--warm_dir --baseline_dir` (+ `--warm_run --baseline_run`) → 標準出力 | ○ |
-| `make_eval_report.py` | ラン 1 本の `eval.md` を生成 | `--run_dir` (+ `--compare`) → `<run_dir>/eval.md` | ● |
+| `analysis/summarize.py` | 全データセットを論文値と並べる | `--results_dir output` → 標準出力 | ○ |
+| `analysis/compare_runs.py` | 2 ランを突き合わせる（カメラ別 / フレームブロック別） | `--a --b` (`per_frame.csv` でも `metrics.csv` でも可) → 標準出力 | ○ |
+| `analysis/summarize_warmstart.py` | warm-start と baseline の収束比較 | `--warm_dir --baseline_dir` (+ `--warm_run --baseline_run`) → 標準出力 | ○ |
+| `report/make_eval_report.py` | ラン 1 本の `eval.md` を生成 | `--run_dir` (+ `--compare`) → `<run_dir>/eval.md` | ● |
 | `scripts/plot_warmstart_sweep.py` | iteration 数 sweep の図と飽和/ドリフト分析 | `--sweep` → `<sweep>/figures/` (`report.html`, `summary.csv`, `analysis.json`, 定性比較 PNG) | ○ |
 
 ### 5. 可視化・動画
@@ -55,7 +63,7 @@
 |---|---|---|---|
 | `visualization/visualize_gaussians.py` | チェックポイントのガウシアン分布を投影 | `--ckpt_dir` → `--out_dir` (PNG + HTML) | ● |
 | `visualization/gaussian_viz_report.py` | 上の出力を 1 枚の HTML にまとめる | `--viz_dir` → `--out` | ● |
-| `plot/plot_loss.py` | 損失曲線の比較 HTML | `--log_dir --baseline_dir` → `--out_html` | ○ |
+| `analysis/plot_loss.py` | 損失曲線の比較 HTML | `--log_dir --baseline_dir` → `--out_html` | ○ |
 | `visualization/extract_snapshots.py` | 学習過程のスナップショット (npz) を抽出 | `--run` → npz | ○ |
 | `visualization/snapshot_viewer.py` | フレーム × iteration の 2 軸ビューワー (streamlit) | `--run` → ブラウザ | ○ |
 | `scripts/rendering/make_video.py` | 描画結果をカメラごとの mp4 に（単一視点のみ） | `--render-root` → `--out-dir` (`<camera>.mp4`) | ● |
@@ -78,8 +86,10 @@
 | `eval/benchmark_fps.py` | `scripts/rendering/benchmark_fps.py`（移動のみ） |
 | `eval/rebuild_manifest_4d.py` | `scripts/rebuild_manifest_4d.py`（移動のみ） |
 | `eval/warmstart_trainer.py` | `scripts/warmstart_trainer.py`（移動のみ） |
-| `eval/loss_logger.py` | `eval/export_loss_csv.py`（改名。未使用の `LossLogger` クラスを削除、出力は同一） |
-| 可視化 4 本 / `plot_loss.py` | `eval/visualization/` / `eval/plot/` へ移動のみ |
+| `eval/loss_logger.py` | `eval/analysis/export_loss_csv.py`（改名。未使用の `LossLogger` クラスを削除、出力は同一） |
+| 可視化 4 本 | `eval/visualization/` へ移動のみ |
+| 集計・比較 5 本 / `plot_loss.py` | `eval/analysis/` へ移動。損失 CSV の読み込み関数は `plot_loss.py` から `export_loss_csv.py` へ移した |
+| `make_eval_report.py` / `templates/` | `eval/report/` へ移動。テンプレートはスクリプト自身の位置から探す |
 
 ## 評価の入口は `scripts/evaluate.py` の 1 本
 
@@ -126,7 +136,7 @@ python scripts/evaluate.py \
     --output-csv output/3DGS/nerf_synthetic/lego/results/metrics.csv
 
 # 3. 集計
-python eval/summarize.py --results_dir output
+python eval/analysis/summarize.py --results_dir output
 ```
 
 ## 実行スクリプトは `runs/` の 3 本
@@ -455,11 +465,11 @@ python scripts/warmstart_trainer.py ... --no_warmstart
 ### 損失曲線
 
 ```bash
-python eval/export_loss_csv.py --run_dir output/4DGS/neu3d/coffee_martini/warmstart_neu3d_trial \
+python eval/analysis/export_loss_csv.py --run_dir output/4DGS/neu3d/coffee_martini/warmstart_neu3d_trial \
     --out_dir output/4DGS/neu3d/coffee_martini/warmstart_neu3d_trial/loss_logs
-python eval/export_loss_csv.py --run_dir output/4DGS/neu3d/coffee_martini/baseline_neu3d_trial \
+python eval/analysis/export_loss_csv.py --run_dir output/4DGS/neu3d/coffee_martini/baseline_neu3d_trial \
     --out_dir output/4DGS/neu3d/coffee_martini/baseline_neu3d_trial/loss_logs
-python eval/plot/plot_loss.py \
+python eval/analysis/plot_loss.py \
     --log_dir      output/4DGS/neu3d/coffee_martini/warmstart_neu3d_trial/loss_logs \
     --baseline_dir output/4DGS/neu3d/coffee_martini/baseline_neu3d_trial/loss_logs \
     --out_html     output/4DGS/neu3d/coffee_martini/loss_plots/neu3d_coffee_martini_trial.html
@@ -472,7 +482,7 @@ python eval/plot/plot_loss.py \
 ### 数値サマリー
 
 ```bash
-python eval/summarize_warmstart.py \
+python eval/analysis/summarize_warmstart.py \
     --warm_dir     output/4DGS/neu3d/coffee_martini/warmstart_neu3d_trial/loss_logs \
     --baseline_dir output/4DGS/neu3d/coffee_martini/baseline_neu3d_trial/loss_logs \
     --warm_run     output/4DGS/neu3d/coffee_martini/warmstart_neu3d_trial \
@@ -553,15 +563,15 @@ Gaussians` になっていることを必ず確認すること。
 ### フェーズ 2: 損失集計
 
 ```bash
-python eval/export_loss_csv.py --run_dir output/4DGS/neu3d/coffee_martini/warmstart_neu3d_full \
+python eval/analysis/export_loss_csv.py --run_dir output/4DGS/neu3d/coffee_martini/warmstart_neu3d_full \
     --out_dir output/4DGS/neu3d/coffee_martini/warmstart_neu3d_full/loss_logs
-python eval/export_loss_csv.py --run_dir output/4DGS/neu3d/coffee_martini/baseline_neu3d_full \
+python eval/analysis/export_loss_csv.py --run_dir output/4DGS/neu3d/coffee_martini/baseline_neu3d_full \
     --out_dir output/4DGS/neu3d/coffee_martini/baseline_neu3d_full/loss_logs
-python eval/plot/plot_loss.py \
+python eval/analysis/plot_loss.py \
     --log_dir      output/4DGS/neu3d/coffee_martini/warmstart_neu3d_full/loss_logs \
     --baseline_dir output/4DGS/neu3d/coffee_martini/baseline_neu3d_full/loss_logs \
     --out_html     output/4DGS/neu3d/coffee_martini/loss_plots/neu3d_coffee_martini_full.html
-python eval/summarize_warmstart.py \
+python eval/analysis/summarize_warmstart.py \
     --warm_dir     output/4DGS/neu3d/coffee_martini/warmstart_neu3d_full/loss_logs \
     --baseline_dir output/4DGS/neu3d/coffee_martini/baseline_neu3d_full/loss_logs \
     --warm_run     output/4DGS/neu3d/coffee_martini/warmstart_neu3d_full \

@@ -1,10 +1,10 @@
 """
-eval/gaussian_count_trend.py
+eval/analysis/gaussian_count_trend.py
 各フレームの training_telemetry.json から Gaussian 数と所要時間を集め、
 最大 / 最小 / 平均とブロックごとの推移を出す。
 
 使い方:
-    python eval/gaussian_count_trend.py --run_dir output/4DGS/neu3d/coffee_martini/baseline_30k --block 10
+    python eval/analysis/gaussian_count_trend.py --run_dir output/4DGS/neu3d/coffee_martini/baseline_30k --block 10
 
 baseline は毎フレームを SfM 点群から独立に学習するので、Gaussian 数の
 フレーム間の振れがそのまま「密度制御の再現性」を表す。warm-start と違って
