@@ -68,8 +68,6 @@ python -m venv /tmp/plotenv && /tmp/plotenv/bin/pip install matplotlib
 | `paper_benchmark_dry_run.py` | ベンチマーク設定の事前検証 |
 | `generate_paper_benchmark_report.py` | ベンチマーク結果のCSV/JSON/Markdown集計 |
 | `generate_paper_benchmark_qualitative.py` | 定性比較図（GT / 7K / 30K）の生成 |
-| `diagnose_adc_differential.py` | 適応的密度制御の差分診断 |
-| `diagnose_official_renderer_gradient.py` | 公式実装との勾配比較診断 |
 
 ## warm-start の iteration 数探索
 
