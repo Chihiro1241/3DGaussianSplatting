@@ -192,7 +192,7 @@ if want eval && [ "$RENDER_FAILED" = "0" ]; then
         --device cuda --rgba-background black \
         || note_failure "eval"
     # baseline は毎フレーム独立なので数は増えないはずだが、比較用に必ず残す。
-    run_step python eval/analysis/plot_gaussian_count.py \
+    run_step python eval/plot/plot_gaussian_count.py \
         --run "$RUN_DIR" --block 10 \
         --output_csv "$RESULTS_DIR/gaussian_counts.csv" \
         || note_failure "eval/gaussian_counts"

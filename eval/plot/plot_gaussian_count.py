@@ -1,16 +1,16 @@
 """
-eval/analysis/plot_gaussian_count.py
+eval/plot/plot_gaussian_count.py
 各フレームの training_telemetry.json から Gaussian 数・学習時間・VRAM を集め、
 集計の表示・CSV の書き出し・推移の図 (HTML) を作る。
 
 使い方:
     # 1 ラン: 集計表示 + CSV (runs/4DGS_*.sh の評価工程から自動で呼ばれる形)
-    python eval/analysis/plot_gaussian_count.py \
+    python eval/plot/plot_gaussian_count.py \
         --run output/4DGS/neu3d/coffee_martini/baseline_30k \
         --block 10 --output_csv output/4DGS/neu3d/coffee_martini/baseline_30k/results/gaussian_counts.csv
 
     # 任意のランを 1 枚の図に重ねる (ラベル=パス。ラベル省略時はランのディレクトリ名)
-    python eval/analysis/plot_gaussian_count.py \
+    python eval/plot/plot_gaussian_count.py \
         --run "30k=output/4DGS/neu3d/coffee_martini/baseline_30k" \
         --run "warm 250=output/4DGS/neu3d/cook_spinach/warmstart_250_300f" \
         --out_html output/4DGS/neu3d/gaussian_plots/overlay.html

@@ -220,7 +220,7 @@ if want eval && [ "$RENDER_FAILED" = "0" ]; then
         || note_failure "eval"
     # warm-start はガウシアン数が単調に増えうる。増加の度合いはこの CSV でしか
     # 追えないので必ず残す (本スクリプトは増加を理由に中断はしない)。
-    run_step python eval/analysis/plot_gaussian_count.py \
+    run_step python eval/plot/plot_gaussian_count.py \
         --run "$RUN_DIR" --block 10 \
         --output_csv "$RESULTS_DIR/gaussian_counts.csv" \
         || note_failure "eval/gaussian_counts"
