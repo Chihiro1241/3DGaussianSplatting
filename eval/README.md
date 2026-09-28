@@ -70,6 +70,9 @@ python eval/report/make_eval_report.py \
 - 評価の数値は `<run_dir>/results/` の `metrics.csv` / `per_frame.csv` / `summary.json`
   から、Gaussian 数・時間・VRAM は `training_telemetry.json` から、密度制御の回数は
   `train_log.jsonl` の実測から取る。
+- 4D のデータセット情報 (解像度・カメラ数・初期点群) は `frames_4d.json` の `source` から探す。
+  データを移動する前に学習したランでは `source` が古い場所を指すので、`--data_dir` で
+  変換済みデータの root を渡す (`runs/4DGS_*.sh` は常に渡す)。
 - 機械的に取れなかった値は推測せず「要追記」と書く。`<!-- human -->` の付いた節
   (定性的評価 / AI による初見) は人が書く領域で、再生成しても既存の中身を引き継ぐ。
 

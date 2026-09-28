@@ -30,6 +30,7 @@ from pathlib import Path
 from statistics import mean, pstdev
 
 TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 UNKNOWN = "要追記"
 HUMAN_MARK = "<!-- human -->"
@@ -157,9 +158,28 @@ def collect_environment(render_backend: str) -> dict[str, str]:
 
 
 # --------------------------------------------------------------- データセット
-def collect_dataset(run_dir: Path, manifest: dict) -> dict[str, str]:
+def resolve_recorded_path(value: str) -> Path:
+    """frames_4d.json に残ったパスを実在する場所へ解決する。
+
+    書き込み側は起動時の cwd (runs/ から回すとリポジトリのルート) からの相対パスで
+    残すので、今の cwd で見つからなければリポジトリのルートから引き直す。
+    """
+    path = Path(value)
+    if path.is_absolute() or path.exists():
+        return path
+    from_repo = REPO_ROOT / path
+    return from_repo if from_repo.exists() else path
+
+
+def collect_dataset(run_dir: Path, manifest: dict, data_dir: Path | None = None) -> dict[str, str]:
+    """``data_dir`` (frame_NNNN/ を含むデータ root) を渡すと、マニフェストの source より優先する。
+
+    データを移動する前に学習したランでは、マニフェストの source が古い場所を指したままになる。
+    """
     frames = manifest.get("frames") or []
-    source = Path(frames[0]["source"]) if frames and "source" in frames[0] else None
+    source = resolve_recorded_path(frames[0]["source"]) if frames and "source" in frames[0] else None
+    if data_dir is not None:
+        source = data_dir / (source.name if source else "frame_0001")
     data_root = source.parent if source else None          # .../converted_4d
     scene_dir = data_root.parent if data_root else None    # .../<scene>
 
@@ -567,11 +587,12 @@ def collect_git(repo: Path) -> dict[str, str]:
     branch = sh(["git", "rev-parse", "--abbrev-ref", "HEAD"], repo) or UNKNOWN
     commit = sh(["git", "rev-parse", "--short", "HEAD"], repo) or UNKNOWN
     dirty = sh(["git", "status", "--porcelain"], repo)
-    return {
-        "GIT_BRANCH": branch,
-        "GIT_COMMIT": commit,
-        "GIT_DIRTY": "clean" if not dirty else f"{len(dirty.splitlines())} ファイルが未コミット",
-    }
+    # sh は失敗しても空文字を返すので、git が使えないときに clean と書かないようにする。
+    if commit == UNKNOWN:
+        state = UNKNOWN
+    else:
+        state = "clean" if not dirty else f"{len(dirty.splitlines())} ファイルが未コミット"
+    return {"GIT_BRANCH": branch, "GIT_COMMIT": commit, "GIT_DIRTY": state}
 
 
 def split_sections(text: str) -> dict[str, str]:
@@ -636,7 +657,7 @@ def render_3d(args, run_dir: Path, tag: str, out_path: Path, template: str, resu
     values.update(collect_dataset_3d(run_dir))
     values.update(config_fields)
     values.update(collect_run_3d(run_dir, results_dir, tag))
-    values.update(collect_git(Path.cwd()))
+    values.update(collect_git(REPO_ROOT))
     # TEST_SPLIT は collect_run_3d が metrics の画像名から実測で決める。
     # config の test_every は nerf_synthetic では使われないため当てにしない。
 
@@ -664,6 +685,8 @@ def main() -> int:
     parser.add_argument("--template", type=Path, default=None,
                         help="既定は mode に応じて eval/report/templates/eval_{3d,4d}.md")
     parser.add_argument("--out", type=Path, default=None, help="既定は <run_dir>/eval.md")
+    parser.add_argument("--data_dir", type=Path, default=None,
+                        help="4D の変換済みデータ root (frame_NNNN/ を含む)。既定は frames_4d.json の source")
     parser.add_argument("--compare", type=Path, action="append", default=[],
                         help="比較表に並べる別ランの run_dir (複数可)")
     parser.add_argument("--render_backend", default="cuda")
@@ -756,9 +779,9 @@ def main() -> int:
         "TRAIN_VIEW_PSNR": stats.get("TRAIN_VIEW_PSNR", UNKNOWN),
     }
     values.update(collect_environment(args.render_backend))
-    values.update(collect_dataset(run_dir, manifest))
+    values.update(collect_dataset(run_dir, manifest, args.data_dir))
     values.update(config_fields)
-    values.update(collect_git(Path.cwd()))
+    values.update(collect_git(REPO_ROOT))
 
     rendered = re.sub(r"\{\{([A-Z_]+)\}\}", lambda m: str(values.get(m.group(1), UNKNOWN)), template)
     rendered = carry_over_human_sections(rendered, out_path)
