@@ -1,12 +1,12 @@
 """Render scene_memory.csv as a LaTeX table with \\multirow dataset groups."""
 import csv
 from itertools import groupby
-from pathlib import Path
 
-CSV = Path("output/3DGS/benchmark_report/report/scene_memory.csv")
-OUT = Path("output/3DGS/benchmark_report/report/scene_memory_table.tex")
+from scenes import DATASETS, REPORT_DIR
 
-DATASET_ORDER = ["Mip-NeRF360", "Tanks&Temples", "Deep Blending", "Synthetic NeRF"]
+CSV = REPORT_DIR / "scene_memory.csv"
+OUT = REPORT_DIR / "scene_memory_table.tex"
+
 LATEX_DATASET = {"Tanks&Temples": r"Tanks\&Temples"}
 
 HEADER = r"""% \usepackage{multirow} が必要（Dataset 列の \multirow によるグループ化に使用）
@@ -33,7 +33,7 @@ FOOTER = r"""        \hline
 
 def main() -> None:
     rows = list(csv.DictReader(CSV.open()))
-    rows.sort(key=lambda r: DATASET_ORDER.index(r["dataset"]))
+    rows.sort(key=lambda r: DATASETS.index(r["dataset"]))
 
     lines = []
     for index, (dataset, group) in enumerate(groupby(rows, key=lambda r: r["dataset"])):

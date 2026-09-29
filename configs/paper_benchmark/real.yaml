@@ -1,5 +1,5 @@
 # 論文再現ベンチマークの実写シーン用 (Mip-NeRF360 / Tanks&Temples / Deep Blending)。
-# scripts/run_paper_benchmark.py が "Synthetic NeRF" 以外のデータセットへ自動で割り当てる。
+# scripts/3DGS/benchmark/run.py が "Synthetic NeRF" 以外のデータセットへ自動で割り当てる。
 # configs/neu3d/base.yaml は本ファイルと設定値が完全に同一 (Neu3D 実験記録上の別名)。
 runtime:
   device: cuda

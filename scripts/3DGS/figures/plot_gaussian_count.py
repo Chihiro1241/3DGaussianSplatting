@@ -1,6 +1,5 @@
 """Plot the Gaussian-count trajectory of all 21 benchmark scenes."""
 import json
-from pathlib import Path
 
 import matplotlib
 
@@ -9,51 +8,9 @@ import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 from matplotlib.ticker import FuncFormatter
 
-# データセット別レイアウト: <ROOT_3DGS>/<dataset>/<scene>/  (1 シーン 1 ラン)
-ROOT_3DGS = Path("output/3DGS")
-OUT = Path("output/3DGS/benchmark_report/report/gaussian_count_plot.pdf")
+from scenes import COLOURS, MILESTONES, PANELS, REPORT_DIR, ROOT_3DGS, SCENES
 
-# One colour per dataset; every scene of a dataset is drawn identically.
-COLOURS = {
-    "Mip-NeRF360": "#1f5fa8",
-    "Tanks&Temples": "#c0392b",
-    "Deep Blending": "#2e8b40",
-    "Synthetic NeRF": "#7a7a7a",
-}
-
-SCENES = [
-    ("mipnerf360/bicycle", "Mip-NeRF360"),
-    ("mipnerf360/bonsai", "Mip-NeRF360"),
-    ("mipnerf360/counter", "Mip-NeRF360"),
-    ("mipnerf360/flowers", "Mip-NeRF360"),
-    ("mipnerf360/garden", "Mip-NeRF360"),
-    ("mipnerf360/kitchen", "Mip-NeRF360"),
-    ("mipnerf360/room", "Mip-NeRF360"),
-    ("mipnerf360/stump", "Mip-NeRF360"),
-    ("mipnerf360/treehill", "Mip-NeRF360"),
-    ("tandt/train", "Tanks&Temples"),
-    ("tandt/truck", "Tanks&Temples"),
-    ("deepblending/drjohnson", "Deep Blending"),
-    ("deepblending/playroom", "Deep Blending"),
-    ("nerf_synthetic/chair", "Synthetic NeRF"),
-    ("nerf_synthetic/drums", "Synthetic NeRF"),
-    ("nerf_synthetic/ficus", "Synthetic NeRF"),
-    ("nerf_synthetic/hotdog", "Synthetic NeRF"),
-    ("nerf_synthetic/lego", "Synthetic NeRF"),
-    ("nerf_synthetic/materials", "Synthetic NeRF"),
-    ("nerf_synthetic/mic", "Synthetic NeRF"),
-    ("nerf_synthetic/ship", "Synthetic NeRF"),
-]
-
-PANELS = [
-    (
-        "実世界データセット（Mip-NeRF360 / Tanks&Temples / Deep Blending）",
-        ["Mip-NeRF360", "Tanks&Temples", "Deep Blending"],
-    ),
-    ("Synthetic NeRF", ["Synthetic NeRF"]),
-]
-
-MILESTONES = [(7000, "7K"), (15000, "15K")]
+OUT = REPORT_DIR / "gaussian_count_plot.pdf"
 
 
 def load_curve(directory: str) -> tuple[list[int], list[float]]:

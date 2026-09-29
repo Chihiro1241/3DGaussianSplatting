@@ -19,7 +19,7 @@ Each snapshot is therefore its own file below ``<run>/snapshots/``, and
       iteration_00000500.npz
       ...
 
-A 4D run (``scripts/train_4d.py``) writes one such directory per frame, which gives the
+A 4D run (``scripts/4DGS/train_4d.py``) writes one such directory per frame, which gives the
 frame-by-iteration grid the viewer animates over.
 """
 

@@ -10,7 +10,7 @@ between them is what happens from frame 2 onward.  Three kinds of condition are
 supported:
 
 ``warmstart``
-    ``scripts/train_4d.py`` with ``configs/neu3d/warmstart_sweep.yaml``:
+    ``scripts/4DGS/train_4d.py`` with ``configs/neu3d/warmstart_sweep.yaml``:
     densification, pruning, opacity reset, progressive SH, and the resolution
     warm-up are all off, the Gaussian count is therefore fixed, and the
     position learning rate is a constant rather than a decay over the budget.
@@ -35,7 +35,7 @@ resumes by being re-run with the same arguments.
 
 Usage::
 
-    python scripts/warmstart_iteration_sweep.py \\
+    python scripts/4DGS/warmstart/warmstart_iteration_sweep.py \\
         --data data/dynamic/neu3d/cook_spinach/converted_4d \\
         --frame1-checkpoint output/4DGS/neu3d/cook_spinach/\\
 cook_spinach_baseline_30k/frame_0001/checkpoints/iteration_00030000.pt \\
@@ -58,7 +58,7 @@ from pathlib import Path
 
 import torch
 
-_REPO_ROOT = Path(__file__).resolve().parents[1]
+_REPO_ROOT = Path(__file__).resolve().parents[3]
 for _import_root in (_REPO_ROOT / "src", _REPO_ROOT / "extensions" / "4dgs"):
     if _import_root.is_dir() and str(_import_root) not in sys.path:
         sys.path.insert(0, str(_import_root))
@@ -108,7 +108,7 @@ class Condition:
     frames: tuple[int, ...]
     #: Where each of those frames lands inside the warm-start run, aligned with
     #: ``frames``.  With ``--frame-stride 1`` the two are identical.  With a
-    #: larger stride ``scripts/train_4d.py`` is handed an explicit frame list
+    #: larger stride ``scripts/4DGS/train_4d.py`` is handed an explicit frame list
     #: and numbers its output directories 1..N over *that* list, so real frame
     #: 7 may live in ``frame_0004``.  The CSV always records the real number,
     #: which keeps every plot on a true time axis.
@@ -237,7 +237,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--keep-frame-checkpoints",
         choices=("all", "last"),
         default="all",
-        help="passed through to scripts/train_4d.py (default: all)",
+        help="passed through to scripts/4DGS/train_4d.py (default: all)",
     )
     parser.add_argument(
         "--frame-gaussians",
@@ -320,7 +320,7 @@ def run(command: list[str], log_path: Path, *, dry_run: bool) -> None:
 def train_warmstart(
     condition: Condition, args: argparse.Namespace, condition_dir: Path
 ) -> None:
-    """Drive one warm-start arm through scripts/train_4d.py.
+    """Drive one warm-start arm through scripts/4DGS/train_4d.py.
 
     The first frame of the sequence is never retrained: the run starts one
     position later and takes its initial Gaussians from the shared checkpoint,
@@ -329,7 +329,7 @@ def train_warmstart(
 
     command = [
         sys.executable,
-        str(_REPO_ROOT / "scripts" / "train_4d.py"),
+        str(_REPO_ROOT / "scripts" / "4DGS" / "train_4d.py"),
         "--data", str(args.data),
         "--config", str(args.config),
         "--output", str(condition_dir),
@@ -366,7 +366,7 @@ def train_scratch_frame(
 
     command = [
         sys.executable,
-        str(_REPO_ROOT / "scripts" / "train.py"),
+        str(_REPO_ROOT / "scripts" / "3DGS" / "train_3d.py"),
         "--data", str(frame_directory),
         "--config", str(args.scratch_config),
         "--output", str(frame_output),
@@ -601,7 +601,7 @@ def write_sweep_metadata(args: argparse.Namespace, conditions: list[Condition]) 
             "dirty": None if status is None else bool(status),
         },
         "argv": sys.argv,
-        "entry_point": "scripts/warmstart_iteration_sweep.py",
+        "entry_point": "scripts/4DGS/warmstart/warmstart_iteration_sweep.py",
         "warm_start_config": str(args.config),
         "scratch_config": str(args.scratch_config),
         "frame1_checkpoint": str(args.frame1_checkpoint),

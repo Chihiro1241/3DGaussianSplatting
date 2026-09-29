@@ -28,7 +28,7 @@ from gaussian_splatting.training.density_control import (
 from gaussian_splatting.training.optimizer import create_optimizer
 from gaussian_splatting.training.schedules import PositionLearningRateScheduler
 from gaussian_splatting.training.trainer import Trainer
-from scripts.train import _density_statistics_for_model
+from train_3d import _density_statistics_for_model
 
 
 ROOT = Path(__file__).resolve().parents[2]

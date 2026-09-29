@@ -131,7 +131,7 @@ if want train; then
     if [ "$START" -gt "$END_FRAME" ]; then
         echo "frame ${END_FRAME} まで完了済み。学習をスキップします。"
     else
-        run_step python scripts/warmstart_trainer.py \
+        run_step python scripts/4DGS/warmstart/warmstart_trainer.py \
             --source_path "$DATA_DIR" \
             --output_dir  "$RUN_DIR" \
             --config      "$CONFIG" \
@@ -158,7 +158,7 @@ if want render; then
     echo "############################################################"
     # 再開していると frames_4d.json がその実行で回した分しか持たないので、
     # 描画前に必ず作り直す。
-    run_step python scripts/rebuild_manifest_4d.py \
+    run_step python scripts/4DGS/rebuild_manifest_4d.py \
         --run_dir "$RUN_DIR" --source_path "$DATA_DIR" \
         --frame_count "$END_FRAME" \
         || note_failure "manifest"
