@@ -1,6 +1,6 @@
 """Turn a warm-start iteration sweep into figures and a saturation analysis.
 
-Reads the ``results.csv`` written by ``scripts/warmstart_iteration_sweep.py``
+Reads the ``results.csv`` written by ``scripts/4DGS/warmstart/warmstart_iteration_sweep.py``
 and produces, under ``<output>``:
 
 ``report.html``
@@ -27,7 +27,7 @@ and produces, under ``<output>``:
 
 Usage::
 
-    python scripts/plot_warmstart_sweep.py \\
+    python scripts/4DGS/warmstart/plot_warmstart_sweep.py \\
         --sweep output/4DGS/neu3d/cook_spinach/warmstart_sweep_stage1 \\
         --data data/dynamic/neu3d/cook_spinach/converted_4d
 """
@@ -43,7 +43,7 @@ from pathlib import Path
 
 import torch
 
-_REPO_ROOT = Path(__file__).resolve().parents[1]
+_REPO_ROOT = Path(__file__).resolve().parents[3]
 for _import_root in (_REPO_ROOT / "src", _REPO_ROOT / "extensions" / "4dgs"):
     if _import_root.is_dir() and str(_import_root) not in sys.path:
         sys.path.insert(0, str(_import_root))
@@ -117,7 +117,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--sweep",
         type=Path,
         required=True,
-        help="sweep root written by scripts/warmstart_iteration_sweep.py",
+        help="sweep root written by scripts/4DGS/warmstart/warmstart_iteration_sweep.py",
     )
     parser.add_argument(
         "--output",

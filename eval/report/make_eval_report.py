@@ -413,7 +413,12 @@ def parse_stdout_command(run_dir: Path) -> dict[str, str]:
     log = run_dir / "stdout.log"
     if not log.exists():
         return {}
-    lines = [l for l in log.read_text(encoding="utf-8", errors="replace").splitlines() if "scripts/train.py" in l]
+    # train_3d.py の旧名 train.py で記録された過去のログも拾う
+    entry_points = ("scripts/3DGS/train_3d.py", "scripts/train.py")
+    lines = [
+        l for l in log.read_text(encoding="utf-8", errors="replace").splitlines()
+        if any(entry in l for entry in entry_points)
+    ]
     if not lines:
         return {}
     last = lines[-1]

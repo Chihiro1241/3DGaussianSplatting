@@ -1,10 +1,10 @@
 """
-scripts/warmstart_trainer.py
+scripts/4DGS/warmstart/warmstart_trainer.py
 warm-start あり / なし を同じ条件で回すためのドライバ。
 
 使い方:
     # warm-start あり
-    python scripts/warmstart_trainer.py \
+    python scripts/4DGS/warmstart/warmstart_trainer.py \
         --source_path data/neu3d/coffee_martini/converted_4d \
         --output_dir  output/4DGS/neu3d/coffee_martini/warmstart_neu3d_trial \
         --config      configs/neu3d/trial_5000.yaml \
@@ -12,22 +12,22 @@ warm-start あり / なし を同じ条件で回すためのドライバ。
         --image-directory images --render-backend cuda
 
     # warm-start なし (baseline)
-    python scripts/warmstart_trainer.py ... --no_warmstart
+    python scripts/4DGS/warmstart/warmstart_trainer.py ... --no_warmstart
 
 ----------------------------------------------------------------------------
 なぜ新しい学習ループを書かないのか
 ----------------------------------------------------------------------------
-フレーム間の受け渡しは既に ``scripts/train_4d.py`` + ``extensions/4dgs/trainer_4d.py``
+フレーム間の受け渡しは既に ``scripts/4DGS/train_4d.py`` + ``extensions/4dgs/trainer_4d.py``
 に実装されている。しかも要求どおり **ガウシアンパラメータだけ**を引き継ぎ、
 optimizer の Adam モーメント・位置 LR スケジュール・ADC 統計は毎フレーム
 ゼロから作り直す (``build_frame_training_state`` の docstring と、それを
 実際に検査する ``assert_frame_state_is_reset`` を参照)。
 
 よって本スクリプトは学習ループを持たず、既存の入口を subprocess で呼ぶだけに
-する。``scripts/train.py`` にも ``scripts/train_4d.py`` にも変更を加えない。
+する。``scripts/3DGS/train_3d.py`` にも ``scripts/4DGS/train_4d.py`` にも変更を加えない。
 
-  * warm-start あり : ``scripts/train_4d.py`` をフレーム範囲に対して 1 回呼ぶ
-  * warm-start なし : ``scripts/train.py`` をフレームごとに独立に呼ぶ
+  * warm-start あり : ``scripts/4DGS/train_4d.py`` をフレーム範囲に対して 1 回呼ぶ
+  * warm-start なし : ``scripts/3DGS/train_3d.py`` をフレームごとに独立に呼ぶ
                       (各フレームが第 1 フレームと同じ SfM 点群から始まる)
 
 どちらも出力を ``<output_dir>/frame_NNNN/`` に揃え、warm-start なし側でも
@@ -37,7 +37,7 @@ optimizer の Adam モーメント・位置 LR スケジュール・ADC 統計�
 ----------------------------------------------------------------------------
 5000 iter で回すときの注意
 ----------------------------------------------------------------------------
-``scripts/train_4d.py`` の ``--subsequent-frame-iterations`` は **2 フレーム目以降にしか
+``scripts/4DGS/train_4d.py`` の ``--subsequent-frame-iterations`` は **2 フレーム目以降にしか
 効かない** (``_frame_config`` が ``carried_over`` のときだけ上書きする)。
 第 1 フレームを含めて全フレームを 5000 iter にしたいので、本スクリプトは
 ``training.iterations`` が既に 5000 の設定ファイル (configs/neu3d/trial_5000.yaml) を
@@ -57,7 +57,7 @@ import sys
 import time
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[3]
 MANIFEST_NAME = "frames_4d.json"
 
 
@@ -88,9 +88,9 @@ def run(command: list[str], log_path: Path) -> None:
 
 
 def train_warmstart(args: argparse.Namespace, frames: list[Path]) -> None:
-    """scripts/train_4d.py に丸ごと任せる (フレーム間の受け渡しはあちら側の責務)。"""
+    """scripts/4DGS/train_4d.py に丸ごと任せる (フレーム間の受け渡しはあちら側の責務)。"""
     command = [
-        sys.executable, str(REPO_ROOT / "scripts" / "train_4d.py"),
+        sys.executable, str(REPO_ROOT / "scripts" / "4DGS" / "train_4d.py"),
         "--data", str(args.source_path),
         "--config", str(args.config),
         "--output", str(args.output_dir),
@@ -99,7 +99,7 @@ def train_warmstart(args: argparse.Namespace, frames: list[Path]) -> None:
         "--image-directory", args.image_directory,
         "--render-backend", args.render_backend,
         # ドライバが driver.log を置くために出力ルートを先に作るので、
-        # scripts/train_4d.py 側の exist_policy=error と衝突させない。
+        # scripts/4DGS/train_4d.py 側の exist_policy=error と衝突させない。
         "--allow-existing-output",
     ]
     if args.carry_over_checkpoint is not None:
@@ -110,7 +110,7 @@ def train_warmstart(args: argparse.Namespace, frames: list[Path]) -> None:
 
 
 def train_baseline(args: argparse.Namespace, frames: list[Path]) -> None:
-    """フレームごとに scripts/train.py を独立に呼ぶ。
+    """フレームごとに scripts/3DGS/train_3d.py を独立に呼ぶ。
 
     受け渡しが無いので各フレームは SfM 点群から始まる。出力とマニフェストは
     warm-start 側と同じ形にして、後段の解析を共通化する。
@@ -122,7 +122,7 @@ def train_baseline(args: argparse.Namespace, frames: list[Path]) -> None:
         frame_output = args.output_dir / f"frame_{number:04d}"
         started = time.time()
         command = [
-            sys.executable, str(REPO_ROOT / "scripts" / "train.py"),
+            sys.executable, str(REPO_ROOT / "scripts" / "3DGS" / "train_3d.py"),
             "--data", str(source),
             "--config", str(args.config),
             "--output", str(frame_output),

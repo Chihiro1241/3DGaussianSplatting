@@ -15,7 +15,7 @@ time step, for example::
 
 Usage::
 
-    python scripts/train_4d.py --data scene --config configs/default.yaml \
+    python scripts/4DGS/train_4d.py --data scene --config configs/default.yaml \
         --output output/scene_4d
 """
 
@@ -37,7 +37,7 @@ import numpy as np
 import torch
 import yaml
 
-_REPO_ROOT = Path(__file__).resolve().parents[1]
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 for _import_root in (_REPO_ROOT / "src", _REPO_ROOT / "extensions" / "4dgs"):
     if _import_root.is_dir() and str(_import_root) not in sys.path:
         sys.path.insert(0, str(_import_root))
@@ -335,7 +335,7 @@ def _load_frame_datasets(
 ) -> tuple[CameraSplits, list, list, list]:
     """Load one frame's training, warm-up, and evaluation cameras.
 
-    Mirrors the dataset handling of ``scripts/train.py`` for a single scene.
+    Mirrors the dataset handling of ``scripts/3DGS/train_3d.py`` for a single scene.
     """
 
     dataset = load_dataset(
@@ -441,7 +441,7 @@ def _write_run_metadata(
         "created_at": datetime.now(timezone.utc).isoformat(),
         "git": _git_revision(),
         "argv": sys.argv,
-        "entry_point": "scripts/train_4d.py",
+        "entry_point": "scripts/4DGS/train_4d.py",
         "config_source": str(args.config),
         "resolved_config": asdict(config),
         "device": str(device),

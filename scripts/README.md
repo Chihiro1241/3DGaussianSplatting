@@ -1,11 +1,18 @@
 # scripts/
 
-論文再現ベンチマーク（`output/3DGS/benchmark_report/`）に関するスクリプト群。
+3DGS / 4DGS の学習・描画・評価の入口と、実験ごとのスクリプト群。
 
-## レポート成果物の生成
+| 場所 | 中身 |
+| --- | --- |
+| 直下 | 3DGS / 4DGS 共通の評価（`evaluate.py`） |
+| `rendering/` | チェックポイントからの描画・動画化・FPS 計測 |
+| `3DGS/` | 単一シーンの学習（`train_3d.py`）と、論文再現ベンチマーク（`output/3DGS/benchmark_report/`）の実行・集計・図表 |
+| `4DGS/` | 動的シーンの学習（`train_4d.py`）と 4D ランの後処理。`4DGS/warmstart/` は warm-start の比較と iteration 数探索 |
+
+## 3DGS/ — レポート成果物の生成
 
 `output/3DGS/<dataset>/<scene>/<scene>/` 配下の学習ログから、論文原稿用の表と図を生成する4本。
-`run_paper_benchmark.py` による全21シーンの学習が完了していることが前提。
+`3DGS/run_paper_benchmark.py` による全21シーンの学習が完了していることが前提。
 
 | スクリプト | 用途 | 入力 | 出力 |
 | --- | --- | --- | --- |
@@ -20,10 +27,10 @@
 
 ```bash
 # すべてリポジトリルートから実行する（入出力パスが相対パスのため）
-python scripts/collect.py          # 1. CSVを生成
-python scripts/make_table.py       # 2. CSVからLaTeX表を生成（collect.py の後）
-python scripts/make_plot.py        # 3. 以下2本は順不同
-python scripts/make_loss_psnr_plot.py
+python scripts/3DGS/collect.py          # 1. CSVを生成
+python scripts/3DGS/make_table.py       # 2. CSVからLaTeX表を生成（collect.py の後）
+python scripts/3DGS/make_plot.py        # 3. 以下2本は順不同
+python scripts/3DGS/make_loss_psnr_plot.py
 ```
 
 ### 依存パッケージ
@@ -35,7 +42,7 @@ python scripts/make_loss_psnr_plot.py
 
 ```bash
 python -m venv /tmp/plotenv && /tmp/plotenv/bin/pip install matplotlib
-/tmp/plotenv/bin/python scripts/make_plot.py
+/tmp/plotenv/bin/python scripts/3DGS/make_plot.py
 ```
 
 日本語ラベルの描画に `Noto Sans CJK JP` を使用する。未インストールの環境では
@@ -51,30 +58,30 @@ python -m venv /tmp/plotenv && /tmp/plotenv/bin/pip install matplotlib
 
 | スクリプト | 用途 |
 | --- | --- |
-| `train.py` | 単一シーンの学習 |
-| `train_4d.py` | 動的シーンをフレームごとに学習（前フレームから warm-start） |
-| `warmstart_trainer.py` | warm-start あり（`train_4d.py`）/ なし（`train.py` をフレームごと）を同条件で回すドライバ。`runs/4DGS_*.sh` の学習段 |
-| `rebuild_manifest_4d.py` | 4D ランの `frames_4d.json` を `frame_NNNN/checkpoints` から作り直す（再開すると前半が消えるため） |
+| `evaluate.py` | PSNR / SSIM / D-SSIM / MS-SSIM / LPIPS の評価。`--checkpoint` でチェックポイントから、`--render-dir` で描画済み画像から |
 | `rendering/render_3d.py` | 学習済みチェックポイントからの描画 |
 | `rendering/render_4d.py` | 4D ラン（`frame_NNNN/` ごとのチェックポイント）を 1 プロセスで全フレーム描画 |
 | `rendering/make_video.py` | `render_4d.py` の連番 PNG をカメラごとの mp4 に |
 | `rendering/benchmark_fps.py` | チェックポイントの描画 FPS（ラスタライズ 1 回の時間）を実測 |
-| `evaluate.py` | PSNR / SSIM / D-SSIM / MS-SSIM / LPIPS の評価。`--checkpoint` でチェックポイントから、`--render-dir` で描画済み画像から |
-| `warmstart_iteration_sweep.py` | warm-start の 1 フレームあたり iteration 数を振って比較 |
-| `plot_warmstart_sweep.py` | 上の `results.csv` から図と飽和/ドリフト分析を生成 |
-| `run_paper_benchmark.py` | 全21シーンのベンチマーク実行 |
-| `paper_benchmark_dry_run.py` | ベンチマーク設定の事前検証 |
-| `generate_paper_benchmark_report.py` | ベンチマーク結果のCSV/JSON/Markdown集計 |
-| `generate_paper_benchmark_qualitative.py` | 定性比較図（GT / 7K / 30K）の生成 |
+| `3DGS/train_3d.py` | 単一シーンの学習 |
+| `3DGS/run_paper_benchmark.py` | 全21シーンのベンチマーク実行 |
+| `3DGS/paper_benchmark_dry_run.py` | ベンチマーク設定の事前検証 |
+| `3DGS/generate_paper_benchmark_report.py` | ベンチマーク結果のCSV/JSON/Markdown集計 |
+| `3DGS/generate_paper_benchmark_qualitative.py` | 定性比較図（GT / 7K / 30K）の生成 |
+| `4DGS/train_4d.py` | 動的シーンをフレームごとに学習（前フレームから warm-start） |
+| `4DGS/rebuild_manifest_4d.py` | 4D ランの `frames_4d.json` を `frame_NNNN/checkpoints` から作り直す（再開すると前半が消えるため） |
+| `4DGS/warmstart/warmstart_trainer.py` | warm-start あり（`train_4d.py`）/ なし（`train_3d.py` をフレームごと）を同条件で回すドライバ。`runs/4DGS_*.sh` の学習段 |
+| `4DGS/warmstart/warmstart_iteration_sweep.py` | warm-start の 1 フレームあたり iteration 数を振って比較 |
+| `4DGS/warmstart/plot_warmstart_sweep.py` | 上の `results.csv` から図と飽和/ドリフト分析を生成 |
 
-## warm-start の iteration 数探索
+## 4DGS/warmstart/ — warm-start の iteration 数探索
 
 動的シーンを 1 フレームずつ学習し、2 フレーム目以降を前フレームの Gaussian から
 warm-start するとき、1 フレームに何 iteration 割くべきかを決めるための 2 本。
 
 ```bash
 # frame 1 は既存の 30,000 iter チェックポイントを全条件で共有する
-python scripts/warmstart_iteration_sweep.py \
+python scripts/4DGS/warmstart/warmstart_iteration_sweep.py \
     --data data/dynamic/neu3d/cook_spinach/converted_4d \
     --frame1-checkpoint output/4DGS/neu3d/cook_spinach/cook_spinach_baseline_30k/\
 frame_0001/checkpoints/iteration_00030000.pt \
@@ -82,7 +89,7 @@ frame_0001/checkpoints/iteration_00030000.pt \
     --iters 0 100 250 500 1000 2000 5000 \
     --start-frame 2 --end-frame 4 --render-backend cuda
 
-python scripts/plot_warmstart_sweep.py \
+python scripts/4DGS/warmstart/plot_warmstart_sweep.py \
     --sweep output/4DGS/neu3d/cook_spinach/warmstart_sweep_stage1 \
     --data data/dynamic/neu3d/cook_spinach/converted_4d
 ```

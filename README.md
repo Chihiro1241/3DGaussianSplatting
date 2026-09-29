@@ -70,7 +70,7 @@ JSONを想定します。RGBAは設定した黒または白背景へ合成して
 ## 実行
 
 ```bash
-python scripts/train.py \
+python scripts/3DGS/train_3d.py \
   --data data \
   --config configs/default.yaml \
   --output output/3DGS/blender/run001_example
@@ -91,7 +91,7 @@ python scripts/evaluate.py \
 学習再開時はチェックポイントの全乱数状態とカメラ選択状態を復元します。
 
 ```bash
-python scripts/train.py \
+python scripts/3DGS/train_3d.py \
   --data data \
   --config configs/default.yaml \
   --output output/3DGS/blender/run001_example \
@@ -172,7 +172,7 @@ opacity reset発生時は、`opacity_reset`、`opacity_num_clamped`、
 background、warm-up、SH scheduleを記録し、学習は開始しません。
 
 ```bash
-python scripts/paper_benchmark_dry_run.py
+python scripts/3DGS/paper_benchmark_dry_run.py
 ```
 
 manifestが`READY`であることを確認してから、逐次runnerを開始します。各sceneは
@@ -180,14 +180,14 @@ manifestが`READY`であることを確認してから、逐次runnerを開始�
 sceneはskipし、中断runはcheckpointからresumeします。
 
 ```bash
-python scripts/run_paper_benchmark.py \
+python scripts/3DGS/run_paper_benchmark.py \
   --manifest output/3DGS/benchmark_report/manifest.json \
   --continue-on-oom
 
-python scripts/generate_paper_benchmark_report.py \
+python scripts/3DGS/generate_paper_benchmark_report.py \
   --manifest output/3DGS/benchmark_report/manifest.json
 
-python scripts/generate_paper_benchmark_qualitative.py \
+python scripts/3DGS/generate_paper_benchmark_qualitative.py \
   --manifest output/3DGS/benchmark_report/manifest.json
 ```
 
