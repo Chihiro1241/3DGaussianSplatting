@@ -1,11 +1,10 @@
 """Plot training loss and PSNR for all 21 benchmark scenes as two figures.
 
-Each figure has the same two-panel layout as make_plot.py (real-world datasets
-above, Synthetic NeRF below), so that loss_plot.pdf, psnr_plot.pdf and
+Each figure has the same two-panel layout as plot_gaussian_count.py (real-world
+datasets above, Synthetic NeRF below), so that loss_plot.pdf, psnr_plot.pdf and
 gaussian_count_plot.pdf read as one family.
 """
 import json
-from pathlib import Path
 
 import matplotlib
 import numpy as np
@@ -15,49 +14,7 @@ import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 from matplotlib.ticker import FuncFormatter
 
-# データセット別レイアウト: <ROOT_3DGS>/<dataset>/<scene>/  (1 シーン 1 ラン)
-ROOT_3DGS = Path("output/3DGS")
-OUT_DIR = Path("output/3DGS/benchmark_report/report")
-
-# One colour per dataset; every scene of a dataset is drawn identically.
-COLOURS = {
-    "Mip-NeRF360": "#1f5fa8",
-    "Tanks&Temples": "#c0392b",
-    "Deep Blending": "#2e8b40",
-    "Synthetic NeRF": "#7a7a7a",
-}
-
-SCENES = [
-    ("mipnerf360/bicycle", "Mip-NeRF360"),
-    ("mipnerf360/bonsai", "Mip-NeRF360"),
-    ("mipnerf360/counter", "Mip-NeRF360"),
-    ("mipnerf360/flowers", "Mip-NeRF360"),
-    ("mipnerf360/garden", "Mip-NeRF360"),
-    ("mipnerf360/kitchen", "Mip-NeRF360"),
-    ("mipnerf360/room", "Mip-NeRF360"),
-    ("mipnerf360/stump", "Mip-NeRF360"),
-    ("mipnerf360/treehill", "Mip-NeRF360"),
-    ("tandt/train", "Tanks&Temples"),
-    ("tandt/truck", "Tanks&Temples"),
-    ("deepblending/drjohnson", "Deep Blending"),
-    ("deepblending/playroom", "Deep Blending"),
-    ("nerf_synthetic/chair", "Synthetic NeRF"),
-    ("nerf_synthetic/drums", "Synthetic NeRF"),
-    ("nerf_synthetic/ficus", "Synthetic NeRF"),
-    ("nerf_synthetic/hotdog", "Synthetic NeRF"),
-    ("nerf_synthetic/lego", "Synthetic NeRF"),
-    ("nerf_synthetic/materials", "Synthetic NeRF"),
-    ("nerf_synthetic/mic", "Synthetic NeRF"),
-    ("nerf_synthetic/ship", "Synthetic NeRF"),
-]
-
-PANELS = [
-    (
-        "実世界データセット（Mip-NeRF360 / Tanks&Temples / Deep Blending）",
-        ["Mip-NeRF360", "Tanks&Temples", "Deep Blending"],
-    ),
-    ("Synthetic NeRF", ["Synthetic NeRF"]),
-]
+from scenes import COLOURS, MILESTONES, PANELS, REPORT_DIR, ROOT_3DGS, SCENES
 
 # (log key, output file, figure title, axis label, log scale?, legend corner)
 FIGURES = [
@@ -66,7 +23,6 @@ FIGURES = [
     ("psnr", "psnr_plot.pdf", "PSNRの推移", "PSNR (dB)", False, "lower right"),
 ]
 
-MILESTONES = [(7000, "7K"), (15000, "15K")]
 WINDOW = 10  # moving-average width, in logged intervals
 
 # (panel index, metric) -> fixed y-axis lower bound; anything absent is autoscaled.
@@ -146,7 +102,7 @@ def main() -> None:
     plt.rcParams["axes.unicode_minus"] = False
 
     logs = {directory: load_log(directory) for directory, _ in SCENES}
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    REPORT_DIR.mkdir(parents=True, exist_ok=True)
     for key, filename, figure_title, ylabel, log_scale, legend_loc in FIGURES:
         figure, panels = plt.subplots(2, 1, figsize=(8, 8))
         for index, (axes, (title, datasets)) in enumerate(zip(panels, PANELS)):
@@ -164,7 +120,7 @@ def main() -> None:
 
         figure.suptitle(f"{figure_title}（{WINDOW}区間移動平均）", fontsize=12)
         figure.tight_layout(rect=(0, 0, 1, 0.97))
-        out = OUT_DIR / filename
+        out = REPORT_DIR / filename
         figure.savefig(out, dpi=300)
         plt.close(figure)
         print(f"wrote {out}")

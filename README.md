@@ -172,7 +172,7 @@ opacity reset発生時は、`opacity_reset`、`opacity_num_clamped`、
 background、warm-up、SH scheduleを記録し、学習は開始しません。
 
 ```bash
-python scripts/3DGS/paper_benchmark_dry_run.py
+python scripts/3DGS/benchmark/dry_run.py
 ```
 
 manifestが`READY`であることを確認してから、逐次runnerを開始します。各sceneは
@@ -180,14 +180,14 @@ manifestが`READY`であることを確認してから、逐次runnerを開始�
 sceneはskipし、中断runはcheckpointからresumeします。
 
 ```bash
-python scripts/3DGS/run_paper_benchmark.py \
+python scripts/3DGS/benchmark/run.py \
   --manifest output/3DGS/benchmark_report/manifest.json \
   --continue-on-oom
 
-python scripts/3DGS/generate_paper_benchmark_report.py \
+python scripts/3DGS/benchmark/report.py \
   --manifest output/3DGS/benchmark_report/manifest.json
 
-python scripts/3DGS/generate_paper_benchmark_qualitative.py \
+python scripts/3DGS/benchmark/qualitative.py \
   --manifest output/3DGS/benchmark_report/manifest.json
 ```
 

@@ -17,7 +17,7 @@
 #   MILESTONES="7000 30000"              保持・評価する iteration
 #   DRY_RUN=1                            コマンドを表示するだけで実行しない
 #
-# 学習コマンドは scripts/3DGS/run_paper_benchmark.py と同一にしてある
+# 学習コマンドは scripts/3DGS/benchmark/run.py と同一にしてある
 # (config / image-directory / milestone / --disable-training-evaluation)。
 # 一括ベンチマークとの違いは、任意のシーンだけを回せることと、描画と
 # 画像ベース評価まで面倒を見ること。
@@ -110,7 +110,7 @@ setup_dataset () {
 }
 
 # Mip-NeRF360 だけ屋外 1/4・屋内 1/2 に縮小した画像を使う
-# (scripts/3DGS/run_paper_benchmark.py の _image_directory と同じ規則)。
+# (scripts/3DGS/benchmark/run.py の _image_directory と同じ規則)。
 image_directory () {
     if [ "$OUT_DATASET" != "mipnerf360" ]; then
         echo "images"; return

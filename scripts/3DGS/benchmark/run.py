@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 
 
 def _now() -> str:
@@ -438,7 +438,7 @@ def main() -> int:
             if status == "OOM" and not args.continue_on_oom:
                 break
     _write_json(output_root / "results" / "failures.json", failures)
-    generator = [sys.executable, str(ROOT / "scripts" / "3DGS" / "generate_paper_benchmark_report.py"), "--manifest", str(manifest_path)]
+    generator = [sys.executable, str(ROOT / "scripts" / "3DGS" / "benchmark" / "report.py"), "--manifest", str(manifest_path)]
     subprocess.run(generator, cwd=ROOT, check=False)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["benchmark_status"] = "COMPLETED_WITH_FAILURES" if failures else "COMPLETED"
