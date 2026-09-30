@@ -54,7 +54,7 @@ python -m venv /tmp/plotenv && /tmp/plotenv/bin/pip install matplotlib
 | スクリプト | 用途 |
 | --- | --- |
 | `train.py` | 単一シーンの学習 |
-| `train_4d.py` | 動的シーンをフレームごとに学習（前フレームから warm-start） |
+| `train_4d.py` | 動的シーンをフレームごとに学習（前フレームから warm-start。設定で Dynamic 3D Gaussians の正則化も付けられる。下記） |
 | `warmstart_trainer.py` | warm-start あり（`train_4d.py`）/ なし（`train.py` をフレームごと）を同条件で回すドライバ。`runs/4DGS_*.sh` の学習段 |
 | `rebuild_manifest_4d.py` | 4D ランの `frames_4d.json` を `frame_NNNN/checkpoints` から作り直す（再開すると前半が消えるため） |
 | `rendering/render_3d.py` | 学習済みチェックポイントからの描画 |
@@ -106,6 +106,70 @@ python scripts/plot_warmstart_sweep.py \
 ガウシアン数を固定し、位置 LR を固定値にしてある（iteration 数を変えたときに
 学習率スケジュールまで変わるのを防ぐため）。これらの上書きは carry-over した
 フレームにしか効かないので、frame 1 の静的学習の挙動は変わらない。
+
+## Dynamic 3D Gaussians の正則化（`train_4d.py`）
+
+前フレームの結果を次フレームの初期値にする従来の方式はそのまま残し、その上に
+Luiten et al., *Dynamic 3D Gaussians: Tracking by Persistent Dynamic View Synthesis*
+(3DV 2024) の物理的正則化を足せる。設定ファイルに `dynamic_regularization`
+セクションを書き、`enabled: true` にしたときだけ効く（セクションを省略した既存の
+設定はすべて従来どおり動く）。実装は `extensions/4dgs/dynamic_regularization.py`。
+
+```bash
+# frame 1 は密度制御ありで別に学習したチェックポイントを渡す
+python scripts/train_4d.py \
+    --data data/dynamic/neu3d/cook_spinach/converted_4d \
+    --config configs/neu3d/dynamic_regularization.yaml \
+    --output output/4DGS/neu3d/cook_spinach/dynamic_regularization \
+    --start-frame 2 \
+    --carry-over-checkpoint output/4DGS/neu3d/cook_spinach/cook_spinach_baseline_30k/\
+frame_0001/checkpoints/iteration_00030000.pt \
+    --render-backend cuda --disable-training-evaluation
+```
+
+carry-over したフレーム（frame 2 以降）で、画像損失に次の項が加わる。
+近傍グラフは基準フレーム（frame 1 の最終状態）で 1 回だけ作り、以後使い回す。
+
+| 項 | 意味 | 既定の重み |
+| --- | --- | --- |
+| `rigid` | 近傍の相対位置が、自分の回転で運ばれた剛体として動く（局所剛性） | 4.0 |
+| `rotation` | 近傍どうしの回転の変化量が等しい | 4.0 |
+| `isometry` | 近傍との距離が基準フレームの距離から変わらない（長期等長性） | 2.0 |
+| `color` | DC 色が前フレームから変わらない | 0.01 |
+
+近傍は各ガウシアンの中心から近い `num_neighbors`（既定 20）個、重みは
+`exp(-neighbor_weight_lambda * d^2)`。重み・近傍数・重み関数は論文実装
+（`JonathonLuiten/Dynamic3DGaussians` の `train.py`）と同じ値で、重みは
+論文実装どおり平方根の内側に入る。さらに論文実装にならって次の 2 つも行う
+（どちらも設定で切れる）。
+
+- `velocity_initialization`: frame t を `mu_{t-1} + (mu_{t-1} - mu_{t-2})`
+  （回転も同様に外挿して正規化）から始める。frame 2 は速度がまだ無いので従来どおり。
+- `freeze_opacity_and_scale`: 不透明度とスケールの Adam 学習率を 0 にして
+  frame 1 の値に固定する。
+
+**制約と注意**
+
+- 近傍グラフがガウシアン集合を固定するので、`adaptive_density_control` と
+  `opacity_reset` は `false` でなければならない（違えば起動時にエラー）。1 本の
+  設定を全フレームで共有するため、frame 1 は別に学習して `--start-frame 2` で渡す。
+- 論文の前景/背景分離とそれに依存する項（背景固定・床・セグメンテーション描画）、
+  カメラごとの色補正は、セグメンテーションマスクが無いので実装していない。
+  正則化は全ガウシアンにかかる。
+- `neighbor_weight_lambda` の 2000 は CMU Panoptic のメートル単位を前提にした値。
+  COLMAP のスケールはシーンごとに違うので、近傍距離の典型値で重みが 0 に
+  潰れていないか確認して調整すること。
+- `train_log.jsonl` の `loss_total` は従来どおり画像損失だけ。正則化は
+  `loss_regularization`（重み付き合計）と `loss_reg_<項>`（重みを掛ける前）に出る。
+- `frames_4d.json` の各フレームに `dynamic_regularization` /
+  `velocity_initialized` / `frozen_parameter_groups` が記録される。
+
+**再開**: `<output>/dynamic_regularization/` に近傍グラフ（`neighbor_graph.pt`）と
+次フレーム用の速度の起点（`motion_origin.pt`、毎フレーム上書き）が残る。途中で
+止まったランは、同じ `--output` に対して `--start-frame F --carry-over-checkpoint
+<frame F-1 の最終チェックポイント>` で再開すれば、中断しなかった場合と同じ結果に
+なる。別ディレクトリの状態から再開するときは `--regularization-state DIR` を渡す。
+`--start-frame 2` だけは状態が無くても、渡されたチェックポイントから近傍グラフを作る。
 
 ## evaluate.py — 画質評価
 

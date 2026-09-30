@@ -19,7 +19,8 @@ configs/
     ├── fixed_gaussian.yaml  fixed_gaussian_noreset.yaml
     ├── fixed_gaussian_noreset_full.yaml
     ├── trial_5000.yaml      trial_5000_fixed.yaml
-    └── warmstart_sweep.yaml
+    ├── warmstart_sweep.yaml
+    └── dynamic_regularization.yaml
 ```
 
 ## ローダーの制約（重要）
@@ -27,13 +28,13 @@ configs/
 `config.py` は **strict** 実装で、**全キーが必須・継承なし**。欠損キーも未知キーも
 `ConfigError` になる。
 
-唯一の例外が `warm_start` セクションで、**セクションごと省略できる**（省略時は
-`config.DEFAULT_WARM_START`）。既存の設定ファイルを 1 本も書き換えずに 4D 実験用の
+例外が `warm_start` と `dynamic_regularization` の 2 セクションで、**セクションごと省略できる**
+（省略時は `config.DEFAULT_WARM_START` / `config.DEFAULT_DYNAMIC_REGULARIZATION`。後者は無効）。既存の設定ファイルを 1 本も書き換えずに 4D 実験用の
 キーを足すためで、セクションを書いた場合はその中身は他と同じく strict に検査される。
-`warm_start` は carry-over したフレームにしか効かないので、静的学習の挙動には
+どちらも carry-over したフレームにしか効かないので、静的学習の挙動には
 一切影響しない。
 
-そのため「差分だけを書いた設定ファイル」は作れず、`neu3d/` の 14 本は
+そのため「差分だけを書いた設定ファイル」は作れず、`neu3d/` の設定は
 `base.yaml` の全文コピーに数行の変更を入れたものになっている。**共通部分の
 括り出しはローダーを変えない限り不可能**。代わりに、各ファイルの冒頭コメントと
 下表で「どこが違うか」を追えるようにしてある。
@@ -58,6 +59,7 @@ configs/
 | `neu3d/trial_5000.yaml` | `iterations` 30000→5000 / `evaluation_interval` 30000→5000 / `checkpoint_interval` 1000→5000 | 10f 予備試行（密度制御に欠陥あり・下記） |
 | `neu3d/trial_5000_fixed.yaml` | ↑ に加え `densify_until_iteration` 15000→4500 | 10f 予備試行（修正版） |
 | `neu3d/warmstart_sweep.yaml` | `iterations` 30000→1000（CLI で上書き）/ `checkpoint_interval` 1000→1000000 / `adaptive_density_control`・`opacity_reset`・`progressive_sh_degree`・`resolution_warmup` → false / `warm_start` セクションを追加 | warm-start の iteration 数探索（frame 2 以降専用） |
+| `neu3d/dynamic_regularization.yaml` | `warmstart_sweep.yaml` から `iterations` 1000→2000 / `position_lr_fixed` 1.6e-5→1.6e-4 / `dynamic_regularization` セクションを追加（有効） | Dynamic 3D Gaussians の正則化（frame 2 以降専用。`scripts/README.md` 参照） |
 
 その他のファイル（派生元が `neu3d/base.yaml` でないもの）:
 
