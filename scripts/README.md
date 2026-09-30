@@ -172,6 +172,12 @@ carry-over したフレーム（frame 2 以降）で、画像損失に次の項�
 - `frames_4d.json` の各フレームに `dynamic_regularization` /
   `velocity_initialized` / `frozen_parameter_groups` が記録される。
 
+**一括実行**: `runs/4DGS_regularized.sh <scene> <end_frame>` が学習から描画・評価・
+動画・可視化・eval.md 生成までを `runs/4DGS_warmstart.sh` と同じ手順で回す。frame 1 は
+学習せず、既存ラン（既定 `output/4DGS/neu3d/<scene>/<scene>_baseline_30k`、`FRAME1_RUN` で
+変更可）の `frame_0001` をラン直下にシンボリックリンクして使う。再実行すれば完了済みの
+最終フレームから自動で再開する。
+
 **再開**: `<output>/dynamic_regularization/` に近傍グラフ（`neighbor_graph.pt`）と
 次フレーム用の速度の起点（`motion_origin.pt`、毎フレーム上書き）が残る。途中で
 止まったランは、同じ `--output` に対して `--start-frame F --carry-over-checkpoint
