@@ -59,7 +59,7 @@ configs/
 | `neu3d/trial_5000.yaml` | `iterations` 30000→5000 / `evaluation_interval` 30000→5000 / `checkpoint_interval` 1000→5000 | 10f 予備試行（密度制御に欠陥あり・下記） |
 | `neu3d/trial_5000_fixed.yaml` | ↑ に加え `densify_until_iteration` 15000→4500 | 10f 予備試行（修正版） |
 | `neu3d/warmstart_sweep.yaml` | `iterations` 30000→1000（CLI で上書き）/ `checkpoint_interval` 1000→1000000 / `adaptive_density_control`・`opacity_reset`・`progressive_sh_degree`・`resolution_warmup` → false / `warm_start` セクションを追加 | warm-start の iteration 数探索（frame 2 以降専用） |
-| `neu3d/dynamic_regularization.yaml` | `warmstart_sweep.yaml` から `iterations` 1000→2000 / `position_lr_fixed` 1.6e-5→1.6e-4 / `dynamic_regularization` セクションを追加（有効） | Dynamic 3D Gaussians の正則化（frame 2 以降専用。`scripts/README.md` 参照） |
+| `neu3d/dynamic_regularization.yaml` | `warmstart_sweep.yaml` から `iterations` 1000→2000 / `position_lr_fixed` 1.6e-5→1.6e-4 / `dynamic_regularization` セクションを追加（有効） | Dynamic 3D Gaussians の正則化（`train_4d_regularized.py` 用、frame 2 以降専用。`scripts/README.md` 参照） |
 
 その他のファイル（派生元が `neu3d/base.yaml` でないもの）:
 

@@ -54,7 +54,8 @@ python -m venv /tmp/plotenv && /tmp/plotenv/bin/pip install matplotlib
 | スクリプト | 用途 |
 | --- | --- |
 | `train.py` | 単一シーンの学習 |
-| `train_4d.py` | 動的シーンをフレームごとに学習（前フレームから warm-start。設定で Dynamic 3D Gaussians の正則化も付けられる。下記） |
+| `train_4d.py` | 動的シーンをフレームごとに学習（前フレームから warm-start） |
+| `train_4d_regularized.py` | `train_4d.py` に Dynamic 3D Gaussians の正則化を足したもの（下記） |
 | `warmstart_trainer.py` | warm-start あり（`train_4d.py`）/ なし（`train.py` をフレームごと）を同条件で回すドライバ。`runs/4DGS_*.sh` の学習段 |
 | `rebuild_manifest_4d.py` | 4D ランの `frames_4d.json` を `frame_NNNN/checkpoints` から作り直す（再開すると前半が消えるため） |
 | `rendering/render_3d.py` | 学習済みチェックポイントからの描画 |
@@ -107,17 +108,24 @@ python scripts/plot_warmstart_sweep.py \
 学習率スケジュールまで変わるのを防ぐため）。これらの上書きは carry-over した
 フレームにしか効かないので、frame 1 の静的学習の挙動は変わらない。
 
-## Dynamic 3D Gaussians の正則化（`train_4d.py`）
+## Dynamic 3D Gaussians の正則化（`train_4d_regularized.py`）
 
-前フレームの結果を次フレームの初期値にする従来の方式はそのまま残し、その上に
-Luiten et al., *Dynamic 3D Gaussians: Tracking by Persistent Dynamic View Synthesis*
-(3DV 2024) の物理的正則化を足せる。設定ファイルに `dynamic_regularization`
-セクションを書き、`enabled: true` にしたときだけ効く（セクションを省略した既存の
-設定はすべて従来どおり動く）。実装は `extensions/4dgs/dynamic_regularization.py`。
+前フレームの結果を次フレームの初期値にする従来の方式（`train_4d.py`）はそのまま残し、
+別スクリプト `train_4d_regularized.py` で Luiten et al., *Dynamic 3D Gaussians:
+Tracking by Persistent Dynamic View Synthesis* (3DV 2024) の物理的正則化を足して学習する。
+引数・データ読み込み・出力の構成は `train_4d.py` と共通（`train_4d.py` の関数を
+import して使う）で、違いは正則化だけ。正則化の本体は
+`extensions/4dgs/dynamic_regularization.py`。
+
+設定ファイルには `dynamic_regularization` セクションを書き `enabled: true` にする
+（例: `configs/neu3d/dynamic_regularization.yaml`）。取り違え防止のため、
+`enabled: true` の設定を `train_4d.py` に渡すと、逆に無効の設定を
+`train_4d_regularized.py` に渡すとエラーになる。セクションを省略した既存の
+設定は従来どおり `train_4d.py` で動く。
 
 ```bash
 # frame 1 は密度制御ありで別に学習したチェックポイントを渡す
-python scripts/train_4d.py \
+python scripts/train_4d_regularized.py \
     --data data/dynamic/neu3d/cook_spinach/converted_4d \
     --config configs/neu3d/dynamic_regularization.yaml \
     --output output/4DGS/neu3d/cook_spinach/dynamic_regularization \

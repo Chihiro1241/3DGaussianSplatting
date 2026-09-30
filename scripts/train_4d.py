@@ -17,11 +17,6 @@ Usage::
 
     python scripts/train_4d.py --data scene --config configs/default.yaml \
         --output output/scene_4d
-
-A configuration with ``dynamic_regularization.enabled: true`` additionally
-applies the local-rigidity, rotation-similarity, and isometry priors of
-Dynamic 3D Gaussians (Luiten et al.) to every carried-over frame; see
-``extensions/4dgs/dynamic_regularization.py``.
 """
 
 from __future__ import annotations
@@ -70,20 +65,6 @@ from trainer_4d import (  # noqa: E402
     build_frame_training_state,
     frame_output_directory,
     handoff_from_checkpoint,
-)
-from dynamic_regularization import (  # noqa: E402
-    STATE_DIRECTORY_NAME,
-    DynamicRegularizer,
-    FrameMotionState,
-    NeighborGraph,
-    build_neighbor_graph,
-    extrapolate_handoff,
-    freeze_parameter_groups,
-    load_motion_origin,
-    load_neighbor_graph,
-    save_motion_origin,
-    save_neighbor_graph,
-    validate_regularization_config,
 )
 
 
@@ -223,19 +204,6 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="'carry' inherits the previous frame's Adam moments; it requires "
         "features.adaptive_density_control=false so the Gaussian count is fixed",
-    )
-    regularization = parser.add_argument_group(
-        "dynamic regularization",
-        "Only used when config.dynamic_regularization.enabled is true.",
-    )
-    regularization.add_argument(
-        "--regularization-state",
-        type=Path,
-        default=None,
-        metavar="DIR",
-        help="directory holding the neighbour graph and velocity origin of an "
-        "earlier run, needed to restart a regularized sequence at "
-        "--start-frame > 2 (default: <output>/" + STATE_DIRECTORY_NAME + ")",
     )
     storage = parser.add_argument_group("per-frame storage")
     storage.add_argument(
@@ -489,62 +457,6 @@ def _write_run_metadata(
     temporary.replace(destination)
 
 
-def _reference_graph(handoff: FrameHandoff, config: Config) -> NeighborGraph:
-    """Build the neighbour graph from the frame a sequence is anchored to."""
-
-    regularization = config.dynamic_regularization
-    return build_neighbor_graph(
-        handoff.parameters["means_world"],
-        num_neighbors=regularization.num_neighbors,
-        weight_lambda=regularization.neighbor_weight_lambda,
-        reference_frame=handoff.source_frame,
-    )
-
-
-def _restore_regularization_state(
-    args: argparse.Namespace,
-    config: Config,
-    handoff: FrameHandoff,
-    output_state: Path,
-) -> tuple[NeighborGraph, FrameMotionState | None]:
-    """Recover the graph and velocity origin for a run that starts mid-sequence.
-
-    At ``--start-frame 2`` the carried-over frame is the reference frame
-    itself, so the graph can be built from it and there is no velocity yet.
-    Later start frames need the graph of frame 1 and the state of frame
-    ``start - 2``, which only an earlier run of the same sequence recorded.
-    """
-
-    source = args.regularization_state or output_state
-    graph = load_neighbor_graph(source)
-    found, origin = load_motion_origin(source, next_frame=args.start_frame)
-    if graph is None:
-        if args.start_frame != 2:
-            raise FileNotFoundError(
-                f"no neighbour graph in {source}: restarting a regularized "
-                f"sequence at frame {args.start_frame} needs the graph of the "
-                "reference frame; pass --regularization-state"
-            )
-        graph = _reference_graph(handoff, config)
-    if (
-        not found
-        and args.start_frame > 2
-        and config.dynamic_regularization.velocity_initialization
-    ):
-        raise FileNotFoundError(
-            f"no velocity origin in {source} for frame {args.start_frame}; "
-            "pass --regularization-state or disable velocity_initialization"
-        )
-    if graph.num_gaussians != handoff.num_gaussians:
-        raise ValueError(
-            f"neighbour graph has {graph.num_gaussians} Gaussians but "
-            f"{args.carry_over_checkpoint} has {handoff.num_gaussians}"
-        )
-    # Keep this run restartable on its own, whatever it was restored from.
-    save_neighbor_graph(output_state, graph)
-    return graph, origin
-
-
 def _discard_checkpoints(frame_output: Path) -> None:
     """Delete one finished frame's checkpoints under --keep-frame-checkpoints last."""
 
@@ -586,8 +498,11 @@ def main(argv: list[str] | None = None) -> int:
             "--position-lr-fixed has no effect with --position-lr-mode exponential"
         )
     carry_adam = config.warm_start.adam_state == "carry"
-    validate_regularization_config(config)
-    regularization = config.dynamic_regularization
+    if config.dynamic_regularization.enabled:
+        raise ValueError(
+            f"{args.config} enables dynamic_regularization, which this script "
+            "does not apply; use scripts/train_4d_regularized.py"
+        )
 
     frame_directories = discover_frame_directories(
         args.data, pattern=args.frame_pattern, names=args.frames
@@ -621,15 +536,6 @@ def main(argv: list[str] | None = None) -> int:
             device="cpu",
             active_sh_degree=args.carry_over_sh_degree,
             carry_optimizer_state=carry_adam,
-        )
-
-    regularization_state = args.output / STATE_DIRECTORY_NAME
-    graph: NeighborGraph | None = None
-    runtime_graph: NeighborGraph | None = None
-    motion_origin: FrameMotionState | None = None
-    if regularization.enabled and handoff is not None:
-        graph, motion_origin = _restore_regularization_state(
-            args, config, handoff, regularization_state
         )
 
     manifest_path = args.output / MANIFEST_NAME
@@ -681,43 +587,16 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 initialization = "random_points"
 
-        regularized = regularization.enabled and carried_over
-        previous_motion: FrameMotionState | None = None
-        initial_handoff = handoff
-        velocity_initialized = False
-        if regularized:
-            previous_motion = FrameMotionState.from_handoff(
-                handoff, epsilon_q=config.model.epsilon_q
-            )
-            if regularization.velocity_initialization:
-                initial_handoff = extrapolate_handoff(
-                    handoff, motion_origin, epsilon_q=config.model.epsilon_q
-                )
-                velocity_initialized = motion_origin is not None
-
         state = build_frame_training_state(
             config=frame_config,
             train_cameras=train_cameras,
             device=device,
             dtype=dtype,
-            handoff=initial_handoff,
+            handoff=handoff,
             initial_points=initial_points,
             initial_colors=initial_colors,
         )
-        del initial_points, initial_colors, initial_handoff
-
-        regularizer: DynamicRegularizer | None = None
-        frozen_groups: list[str] = []
-        if regularized:
-            if runtime_graph is None:
-                runtime_graph = graph.to(device=device, dtype=dtype)
-            regularizer = DynamicRegularizer(
-                runtime_graph,
-                previous_motion.to(device=device, dtype=dtype),
-                regularization,
-            )
-            if regularization.freeze_opacity_and_scale:
-                frozen_groups = freeze_parameter_groups(state.optimizer)
+        del initial_points, initial_colors
 
         # Density control replaces the model's parameter tensors in place, so
         # the initial counts must be read before training starts.
@@ -744,7 +623,6 @@ def main(argv: list[str] | None = None) -> int:
             snapshot_writer=_build_snapshot_writer(
                 args, frame_output, frame=frame_number
             ),
-            regularizer=regularizer,
         )
         schedule = (
             f"position lr {state.position_learning_rate:.3e} (fixed)"
@@ -756,15 +634,7 @@ def main(argv: list[str] | None = None) -> int:
             f"{initialization}, {initial_num_gaussians} Gaussians, "
             f"SH degree {initial_sh_degree}, "
             f"{frame_config.training.iterations} iterations, "
-            f"{schedule}, Adam {state.adam_state}"
-            + (
-                f", regularized (k={runtime_graph.num_neighbors}, "
-                f"velocity {'on' if velocity_initialized else 'off'}, "
-                f"frozen {frozen_groups or 'none'})"
-                if regularizer is not None
-                else ""
-            )
-            + f" -> {frame_output}",
+            f"{schedule}, Adam {state.adam_state} -> {frame_output}",
             flush=True,
         )
         try:
@@ -795,16 +665,6 @@ def main(argv: list[str] | None = None) -> int:
             device="cpu",
             optimizer=state.optimizer if carry_adam else None,
         )
-        if regularization.enabled:
-            if graph is None:
-                # Frame 1 of this run is the reference frame.
-                graph = _reference_graph(handoff, config)
-                save_neighbor_graph(regularization_state, graph)
-            # Frame f + 1 extrapolates from frame f - 1 to frame f.
-            motion_origin = previous_motion
-            save_motion_origin(
-                regularization_state, motion_origin, next_frame=frame_number + 1
-            )
         gaussian_ply = None
         if args.frame_gaussian_dir is not None:
             gaussian_ply = args.frame_gaussian_dir / f"frame_{frame_number:04d}.ply"
@@ -824,9 +684,6 @@ def main(argv: list[str] | None = None) -> int:
                 "scene_extent": state.scene_extent,
                 "adam_state": state.adam_state,
                 "position_learning_rate": state.position_learning_rate,
-                "dynamic_regularization": regularizer is not None,
-                "velocity_initialized": velocity_initialized,
-                "frozen_parameter_groups": frozen_groups,
                 "training_loop_seconds": trainer.training_loop_seconds,
                 "best_mean_psnr": trainer.best_mean_psnr,
                 "gaussian_ply": None if gaussian_ply is None else str(gaussian_ply),
@@ -853,7 +710,6 @@ def main(argv: list[str] | None = None) -> int:
             _discard_checkpoints(frame_output_directory(args.output, frame_number - 1))
 
         del trainer, state, dataset, train_cameras, quarter, half, evaluation_cameras
-        del regularizer, previous_motion
         # torch.save keeps the storages it serialized in a reference cycle
         # (a function-local Pickler class and its persistent_id closure), so
         # the checkpoint written above pins this frame's parameters and Adam

@@ -433,7 +433,7 @@ def test_trainer_without_a_regularizer_logs_no_regularization(tmp_path: Path) ->
 
 
 # --------------------------------------------------------------------------
-# end to end through scripts/train_4d.py
+# end to end through scripts/train_4d_regularized.py
 # --------------------------------------------------------------------------
 
 
@@ -486,13 +486,15 @@ def sequence(tmp_path: Path) -> tuple[Path, Path]:
     return data, config
 
 
-def _run(data: Path, config: Path, output: Path, *extra: str) -> None:
-    import train_4d
+def _arguments(data: Path, config: Path, output: Path, *extra: str) -> list[str]:
+    return ["--data", str(data), "--config", str(config), "--output", str(output),
+            "--disable-training-evaluation", *extra]
 
-    assert train_4d.main([
-        "--data", str(data), "--config", str(config), "--output", str(output),
-        "--disable-training-evaluation", *extra,
-    ]) == 0
+
+def _run(data: Path, config: Path, output: Path, *extra: str) -> None:
+    import train_4d_regularized
+
+    assert train_4d_regularized.main(_arguments(data, config, output, *extra)) == 0
 
 
 @pytest.fixture(autouse=True)
@@ -554,3 +556,21 @@ def test_a_regularized_sequence_restarts_where_it_stopped(
     with pytest.raises(ValueError, match="not for frame 3"):
         _run(data, config, unbroken, "--start-frame", "3", "--carry-over-checkpoint",
              str(unbroken / "frame_0002" / "checkpoints" / "iteration_00000002.pt"))
+
+
+def test_each_entry_point_refuses_the_other_ones_configuration(
+    sequence: tuple[Path, Path], tmp_path: Path
+) -> None:
+    import train_4d
+    import train_4d_regularized
+
+    data, regularized_config = sequence
+    with pytest.raises(ValueError, match="train_4d_regularized.py"):
+        train_4d.main(_arguments(data, regularized_config, tmp_path / "plain"))
+
+    plain_config = tmp_path / "plain.yaml"
+    mapping = yaml.safe_load(regularized_config.read_text())
+    mapping["dynamic_regularization"]["enabled"] = False
+    plain_config.write_text(yaml.safe_dump(mapping), encoding="utf-8")
+    with pytest.raises(ValueError, match="does not enable"):
+        train_4d_regularized.main(_arguments(data, plain_config, tmp_path / "reg"))

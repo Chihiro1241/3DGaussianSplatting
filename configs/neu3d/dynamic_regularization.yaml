@@ -1,6 +1,7 @@
 # Dynamic 3D Gaussians (Luiten et al., 3DV 2024) の物理的正則化つき 4D 学習用
-# (frame 2 以降専用)。frame 1 は base.yaml などで密度制御ありで学習した
-# チェックポイントを --start-frame 2 --carry-over-checkpoint で受け取る。
+# (scripts/train_4d_regularized.py で使う。frame 2 以降専用)。frame 1 は
+# base.yaml などで密度制御ありで学習したチェックポイントを
+# --start-frame 2 --carry-over-checkpoint で受け取る。
 #
 # warmstart_sweep.yaml からの差分:
 #   iterations 1000 -> 2000              (論文の t >= 2 の 1 フレームあたり反復数)
@@ -8,7 +9,7 @@
 #   dynamic_regularization セクションを追加 (重みは論文実装の値)
 #
 # ADC と opacity reset は無効のまま (近傍グラフがガウシアン集合を固定するため。
-# 有効だと train_4d.py が起動時にエラーにする)。
+# 有効だと train_4d_regularized.py が起動時にエラーにする)。
 #
 # 注意: neighbor_weight_lambda (近傍重み exp(-lambda d^2) の lambda) の 2000 は
 # CMU Panoptic のメートル単位のシーンを前提にした値。COLMAP のスケールは
