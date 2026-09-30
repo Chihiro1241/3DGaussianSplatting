@@ -1,5 +1,5 @@
 # 論文再現ベンチマークの合成シーン用 (NeRF Synthetic 8 シーン)。
-# scripts/run_paper_benchmark.py が "Synthetic NeRF" に割り当てる。
+# scripts/3DGS/benchmark/run.py が "Synthetic NeRF" に割り当てる。
 # real.yaml からの差分: 背景を白に (data.rgba_background: white /
 # rendering.background: [1,1,1]) し、features.random_initial_sh_dc を有効化。
 runtime:

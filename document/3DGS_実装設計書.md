@@ -202,7 +202,8 @@ def world_to_camera(means_world, rotation_cw, translation_cw):
 │           ├── checkpoint.py
 │           └── ply_io.py
 ├── scripts/
-│   ├── train.py
+│   ├── 3DGS/
+│   │   └── train_3d.py
 │   ├── rendering/
 │   │   └── render_3d.py
 │   └── evaluate.py
@@ -767,7 +768,7 @@ Blenderのカメラ情報と画像の変換規約を次のように固定する�
 
 | スクリプト | 主な引数 | 処理 |
 |---|---|---|
-| `scripts/train.py` | `--data`, `--config`, `--output`, `--resume CHECKPOINT` | データ読み込み、初期化または再開、学習、定期保存 |
+| `scripts/3DGS/train_3d.py` | `--data`, `--config`, `--output`, `--resume CHECKPOINT` | データ読み込み、初期化または再開、学習、定期保存 |
 | `scripts/rendering/render_3d.py` | `--data`, `--checkpoint`, `--split`, `--output` | 指定視点をレンダリングしてPNGへ保存 |
 | `scripts/evaluate.py` | `--data`, `--checkpoint`, `--split`, `--output` | 各画像のPSNRと平均PSNRを計算して指定先のJSONへ保存 |
 
@@ -776,7 +777,7 @@ Blenderのカメラ情報と画像の変換規約を次のように固定する�
 標準実行コマンドは次のとおりとする。
 
 ```bash
-python scripts/train.py --data data --config configs/default.yaml --output output/3DGS/blender/run001_example
+python scripts/3DGS/train_3d.py --data data --config configs/default.yaml --output output/3DGS/blender/run001_example
 python scripts/rendering/render_3d.py --data data --checkpoint output/3DGS/blender/run001_example/checkpoints/latest.pt --split test --output output/3DGS/blender/run001_example/renders/test
 python scripts/evaluate.py --data data --checkpoint output/3DGS/blender/run001_example/checkpoints/latest.pt --split test --output output/3DGS/blender/run001_example/metrics/evaluation.json
 ```

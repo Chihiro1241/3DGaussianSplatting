@@ -27,7 +27,7 @@ from gaussian_splatting.renderer.renderer import GaussianRenderer
 from gaussian_splatting.training.optimizer import create_optimizer
 from gaussian_splatting.training.schedules import PositionLearningRateScheduler
 from gaussian_splatting.training.trainer import Trainer
-from scripts.train import _prepare_output
+from train_3d import _prepare_output
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -344,7 +344,7 @@ def test_checkpoint_resume_reproduces_next_camera_loss_and_update(
 @pytest.mark.parametrize(
     ("script", "required_option"),
     [
-        ("train.py", "--resume"),
+        ("3DGS/train_3d.py", "--resume"),
         ("rendering/render_3d.py", "--checkpoint"),
         ("evaluate.py", "--output"),
     ],

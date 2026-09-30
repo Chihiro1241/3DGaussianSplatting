@@ -1,14 +1,14 @@
 """
-scripts/rebuild_manifest_4d.py
+scripts/4DGS/rebuild_manifest_4d.py
 出力ディレクトリを走査して frames_4d.json を作り直す。
 
 使い方:
-    python scripts/rebuild_manifest_4d.py --run_dir output/4DGS/neu3d/coffee_martini/baseline_30k
+    python scripts/4DGS/rebuild_manifest_4d.py --run_dir output/4DGS/neu3d/coffee_martini/baseline_30k
 
 ----------------------------------------------------------------------------
 なぜ必要か
 ----------------------------------------------------------------------------
-``scripts/warmstart_trainer.py`` の baseline 経路は、その実行で回したフレームだけを
+``scripts/4DGS/warmstart/warmstart_trainer.py`` の baseline 経路は、その実行で回したフレームだけを
 ``records`` に貯めて毎回マニフェストを丸ごと書き直す。つまり途中で落ちて
 ``--start_frame 150`` で再開すると、出来上がる frames_4d.json は **150 番以降
 しか載らない**。``scripts/rendering/render_4d.py`` はこのマニフェストを唯一の入力に

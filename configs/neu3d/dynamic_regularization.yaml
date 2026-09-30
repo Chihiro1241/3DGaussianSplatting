@@ -1,5 +1,5 @@
 # Dynamic 3D Gaussians (Luiten et al., 3DV 2024) の物理的正則化つき 4D 学習用
-# (scripts/train_4d_regularized.py で使う。frame 2 以降専用)。frame 1 は
+# (scripts/4DGS/train_4d_regularized.py で使う。frame 2 以降専用)。frame 1 は
 # base.yaml などで密度制御ありで学習したチェックポイントを
 # --start-frame 2 --carry-over-checkpoint で受け取る。
 #

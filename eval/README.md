@@ -96,7 +96,7 @@ warm-start でガウシアンが動いているかを直接確認できる。`pi
 
 スナップショットの作り方は 2 通り。
 
-- **学習中に記録する** (`scripts/train.py` / `scripts/train_4d.py`):
+- **学習中に記録する** (`scripts/3DGS/train_3d.py` / `scripts/4DGS/train_4d.py`):
   `--snapshot-interval N` (N iter ごと、既定 0 = 無効)、`--snapshot-iterations 0,50,100`
   (必ず記録する iter)、`--snapshot-max-points K` (1 コマの点数、既定 20000、0 で全点)。
   最初と最後の iteration は必ず記録する。

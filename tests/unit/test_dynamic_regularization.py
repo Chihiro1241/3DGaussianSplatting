@@ -433,7 +433,7 @@ def test_trainer_without_a_regularizer_logs_no_regularization(tmp_path: Path) ->
 
 
 # --------------------------------------------------------------------------
-# end to end through scripts/train_4d_regularized.py
+# end to end through scripts/4DGS/train_4d_regularized.py
 # --------------------------------------------------------------------------
 
 
@@ -499,7 +499,7 @@ def _run(data: Path, config: Path, output: Path, *extra: str) -> None:
 
 @pytest.fixture(autouse=True)
 def _scripts_on_path(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.syspath_prepend(str(PROJECT_ROOT / "scripts"))
+    monkeypatch.syspath_prepend(str(PROJECT_ROOT / "scripts" / "4DGS"))
 
 
 def _final_model(output: Path, frame: int):

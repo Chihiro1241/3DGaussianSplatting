@@ -1,6 +1,6 @@
 """Train the 4D extension with the physically based priors of Dynamic 3D Gaussians.
 
-This is ``scripts/train_4d.py`` plus the regularization of Luiten et al.,
+This is ``scripts/4DGS/train_4d.py`` plus the regularization of Luiten et al.,
 "Dynamic 3D Gaussians: Tracking by Persistent Dynamic View Synthesis"
 (3DV 2024).  Frames are still trained one by one and frame ``f >= 2`` still
 starts from the Gaussians of frame ``f - 1``; in addition, every carried-over
@@ -9,7 +9,7 @@ colour-consistency priors to its image loss, may start from a
 constant-velocity extrapolation, and may hold opacity and scale fixed.  See
 ``extensions/4dgs/dynamic_regularization.py`` for the terms.
 
-The plain hand-off stays in ``scripts/train_4d.py``, unchanged; this script
+The plain hand-off stays in ``scripts/4DGS/train_4d.py``, unchanged; this script
 reuses its argument parser, dataset loading, and run bookkeeping so that the
 two produce the same directory layout and differ only in the regularization.
 
@@ -18,7 +18,7 @@ The configuration must contain a ``dynamic_regularization`` section with
 Because the neighbour graph fixes the Gaussian set, the usual workflow trains
 frame 1 separately with density control and starts here from it::
 
-    python scripts/train_4d_regularized.py --data scene \\
+    python scripts/4DGS/train_4d_regularized.py --data scene \\
         --config configs/neu3d/dynamic_regularization.yaml \\
         --output output/scene_4d_regularized \\
         --start-frame 2 --carry-over-checkpoint frame1/checkpoints/latest.pt
@@ -36,11 +36,11 @@ from pathlib import Path
 
 import torch
 
-_REPO_ROOT = Path(__file__).resolve().parents[1]
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 for _import_root in (
     _REPO_ROOT / "src",
     _REPO_ROOT / "extensions" / "4dgs",
-    _REPO_ROOT / "scripts",
+    _REPO_ROOT / "scripts" / "4DGS",
 ):
     if _import_root.is_dir() and str(_import_root) not in sys.path:
         sys.path.insert(0, str(_import_root))
@@ -118,7 +118,7 @@ def _write_run_metadata(
         "created_at": datetime.now(timezone.utc).isoformat(),
         "git": _git_revision(),
         "argv": sys.argv,
-        "entry_point": "scripts/train_4d_regularized.py",
+        "entry_point": "scripts/4DGS/train_4d_regularized.py",
         "config_source": str(args.config),
         "resolved_config": asdict(config),
         "device": str(device),
@@ -219,7 +219,7 @@ def main(argv: list[str] | None = None) -> int:
     if not regularization.enabled:
         raise ValueError(
             f"{args.config} does not enable dynamic_regularization; use "
-            "scripts/train_4d.py for the plain frame-to-frame hand-off"
+            "scripts/4DGS/train_4d.py for the plain frame-to-frame hand-off"
         )
     validate_regularization_config(config)
 

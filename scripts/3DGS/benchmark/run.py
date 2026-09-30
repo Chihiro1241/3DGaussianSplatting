@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[3]
 
 
 def _now() -> str:
@@ -235,7 +235,7 @@ def _run_scene(row: dict[str, Any], output_root: Path) -> str:
     stderr_path = run_dir / "stderr.log"
     latest = run_dir / "checkpoints" / "latest.pt"
     command = [
-        sys.executable, str(ROOT / "scripts" / "train.py"),
+        sys.executable, str(ROOT / "scripts" / "3DGS" / "train_3d.py"),
         "--data", row["dataset_path"], "--config", str(_config(row["dataset"])),
         "--output", str(run_dir), "--render-backend", "cuda",
         "--allow-existing-output",
@@ -438,7 +438,7 @@ def main() -> int:
             if status == "OOM" and not args.continue_on_oom:
                 break
     _write_json(output_root / "results" / "failures.json", failures)
-    generator = [sys.executable, str(ROOT / "scripts" / "generate_paper_benchmark_report.py"), "--manifest", str(manifest_path)]
+    generator = [sys.executable, str(ROOT / "scripts" / "3DGS" / "benchmark" / "report.py"), "--manifest", str(manifest_path)]
     subprocess.run(generator, cwd=ROOT, check=False)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["benchmark_status"] = "COMPLETED_WITH_FAILURES" if failures else "COMPLETED"

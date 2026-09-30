@@ -2,7 +2,7 @@
 # 4DGS_regularized.sh — Neu3D の動的シーンを Dynamic 3D Gaussians の正則化つきで回す。
 # 前フレームの結果を次フレームの初期値にするのは 4DGS_warmstart.sh と同じで、
 # それに加えて frame 2 以降で局所剛性 / 回転類似性 / 長期等長性 / 色の一貫性の
-# 正則化をかける (scripts/train_4d_regularized.py,
+# 正則化をかける (scripts/4DGS/train_4d_regularized.py,
 # extensions/4dgs/dynamic_regularization.py を参照)。
 #
 #   runs/4DGS_regularized.sh                       # coffee_martini / 300 フレーム
@@ -180,7 +180,7 @@ if want train; then
         echo "引き継ぎ元: $carry"
         # 近傍グラフと速度の起点は <RUN_DIR>/dynamic_regularization/ から読むので、
         # 再開でも --regularization-state は要らない。
-        run_step python scripts/train_4d_regularized.py \
+        run_step python scripts/4DGS/train_4d_regularized.py \
             --data "$DATA_DIR" \
             --config "$CONFIG" \
             --output "$RUN_DIR" \
@@ -208,7 +208,7 @@ if want render; then
     echo "############################################################"
     # 再開していると frames_4d.json がその実行で回した分しか持たないので、
     # 描画前に必ず作り直す。
-    run_step python scripts/rebuild_manifest_4d.py \
+    run_step python scripts/4DGS/rebuild_manifest_4d.py \
         --run_dir "$RUN_DIR" --source_path "$DATA_DIR" \
         --frame_count "$END_FRAME" \
         || note_failure "manifest"
