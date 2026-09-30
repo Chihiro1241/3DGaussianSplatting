@@ -7,7 +7,7 @@
 | 直下 | 3DGS / 4DGS 共通の評価（`evaluate.py`） |
 | `rendering/` | チェックポイントからの描画・動画化・FPS 計測 |
 | `3DGS/` | 単一シーンの学習（`train_3d.py`）と、論文再現ベンチマーク（`output/3DGS/benchmark_report/`）の実行・集計・図表 |
-| `4DGS/` | 動的シーンの学習（`train_4d.py`）と 4D ランの後処理。`4DGS/warmstart/` は warm-start の比較と iteration 数探索 |
+| `4DGS/` | 動的シーンの学習（`train_4d.py`）と 4D ランの後処理。`4DGS/warmstart/` は warm-start の比較と iteration 数探索、`4DGS/tracking/` は点追跡とその評価 |
 
 ## 3DGS/
 
@@ -79,6 +79,9 @@ python -m venv /tmp/plotenv && /tmp/plotenv/bin/pip install matplotlib
 | `4DGS/warmstart/warmstart_trainer.py` | warm-start あり（`train_4d.py`）/ なし（`train_3d.py` をフレームごと）を同条件で回すドライバ。`runs/4DGS_*.sh` の学習段 |
 | `4DGS/warmstart/warmstart_iteration_sweep.py` | warm-start の 1 フレームあたり iteration 数を振って比較 |
 | `4DGS/warmstart/plot_warmstart_sweep.py` | 上の `results.csv` から図と飽和/ドリフト分析を生成 |
+| `4DGS/tracking/track_points.py` | 4D ランからクエリ点（3D 点か 2D 画素）の軌跡を作る（下記） |
+| `4DGS/tracking/evaluate_tracking.py` | 予測軌跡と正解軌跡から 3D / 2D 追跡指標（MTE, δ, Survival）を出す |
+| `4DGS/tracking/plot_tracks.py` | 2D 軌跡を 1 視点の画像に重ねる（予測は青、正解は赤） |
 
 ## 4DGS/warmstart/ — warm-start の iteration 数探索
 
@@ -192,6 +195,54 @@ carry-over したフレーム（frame 2 以降）で、画像損失に次の項�
 <frame F-1 の最終チェックポイント>` で再開すれば、中断しなかった場合と同じ結果に
 なる。別ディレクトリの状態から再開するときは `--regularization-state DIR` を渡す。
 `--start-frame 2` だけは状態が無くても、渡されたチェックポイントから近傍グラフを作る。
+
+## 4DGS/tracking/ — 点追跡と追跡評価（Dynamic 3D Gaussians の Table 1）
+
+Luiten et al. の Sec. 3 "Tracking with Dynamic 3D Gaussians" の方法で 4D ランから点の軌跡を作り、
+Table 1 の 3D / 2D 追跡指標で評価する。追跡は `extensions/4dgs/point_tracking.py`、
+指標は `extensions/4dgs/tracking_metrics.py` にあり、指標側は他手法の軌跡も同じ形式で評価できる。
+
+```bash
+# cam00 の 40 px 格子を frame 1 から追跡する
+python scripts/4DGS/tracking/track_points.py \
+    --run_dir output/4DGS/neu3d/cook_spinach/cook_spinach_dynreg_7k_250_300f \
+    --data_dir data/dynamic/neu3d/cook_spinach/converted_4d \
+    --query-camera cam00 --query-grid 40 \
+    --out output/4DGS/neu3d/cook_spinach/cook_spinach_dynreg_7k_250_300f/tracking/tracks_cam00.npz
+
+# 正解があるシーンの評価（シーンごとに --scene 名前 予測 正解）
+python scripts/4DGS/tracking/evaluate_tracking.py \
+    --scene juggle pred/juggle.npz gt/juggle.npz --unit-to-cm 100 --output-csv tracking.csv
+```
+
+入出力の `.npz` のキーは各スクリプトの先頭に書いてある。
+
+**追跡の方法**
+
+- 3D クエリは論文どおり。基準フレームで影響 `f_i(p) = sigmoid(o_i) exp(-½ (p-μ_i)ᵀ Σ_i⁻¹ (p-μ_i))` が
+  最大のガウシアンのローカル座標で点を表し、各フレームでそのガウシアンと一緒に動かす。
+  全ガウシアンで `f < --background-threshold`（既定 0.5）なら静的背景として固定する。
+  最大の探索は近似なしの総当たりを GPU で分割して行う。
+- 2D クエリは中央値深度で 3D 点にする。中央値深度は、光線の透過率が 0.5 を切るガウシアンの中心深度で、
+  そのガウシアンを担当にする。論文の文面（平均深度と f の最大）ではなく、公式の深度描画器
+  （`diff-gaussian-rasterization-w-depth`）と著者の説明（Dynamic3DGaussians issue #20）に合わせた。
+  学習済みのガウシアンは平たく、6 割は不透明度が 0.5 未満なので、f ≥ 0.5 の規則では
+  cook_spinach で 98% の点が背景になるため。
+- カメラは全フレームで動かないものとし、基準フレームのカメラで投影する。
+
+**指標の定義**
+
+公式の評価コードは公開されていないので、PointOdyssey の参照評価（PIPs++ の `test_on_pod.py`）の、
+論文当時の版に合わせた。
+
+- 2D の誤差は x を 256/W 倍、y を 256/H 倍した「正規化 px」で測る。3D は cm（`--unit-to-cm`）。
+- δ は閾値 1, 2, 4, 8, 16 ごとに、誤差が閾値未満の (軌跡, フレーム) の割合を出して平均する。frame 0 は除く。
+- Survival は、誤差が閾値を超える最初のフレームまでの割合を軌跡とフレームで平均する。
+  閾値は 2D が 50 正規化 px（現行の PIPs++ は 16）、3D が 50 cm。frame 0 を含む。
+- MTE は軌跡ごとに誤差の中央値を取り、軌跡で平均する。frame 0 を含む。
+- 有効なフレームは、正解が画像内（`[1, W-2] × [1, H-2]`）にあるフレーム。遮蔽されたフレームも数える。
+- 2D はシーンの全カメラの軌跡をまとめて 1 つとして指標を出す。表の Mean はシーン平均
+  （論文 Table 1 の Mean 列の値から検算して一致）。
 
 ## evaluate.py — 画質評価
 
