@@ -137,6 +137,53 @@ DEFAULT_WARM_START = WarmStartConfig(
 
 
 @dataclass(frozen=True)
+class DynamicRegularizationConfig:
+    """Physically based priors of Dynamic 3D Gaussians (Luiten et al., 3DV 2024).
+
+    Like ``warm_start`` this section is optional and applies only to
+    carried-over frames of a 4D sequence; omitting it (or leaving ``enabled``
+    false) keeps the plain frame-to-frame hand-off unchanged.
+
+    The neighbour graph is built once from the reference frame (the first
+    frame of the sequence) with ``num_neighbors`` nearest centres per Gaussian
+    and weights ``exp(-neighbor_weight_lambda * d^2)``.  ``neighbor_weight_lambda``
+    is in inverse squared scene units, so it has to follow the scale of the
+    reconstruction (the paper's 2000 assumes the CMU Panoptic metric scale).
+
+    ``lambda_rigid``, ``lambda_rotation``, ``lambda_isometry``, and
+    ``lambda_color`` weight the local-rigidity, rotation-similarity,
+    long-term-isometry, and soft colour-consistency terms; a zero weight skips
+    that term.  ``velocity_initialization`` extrapolates each Gaussian's
+    centre and rotation forward by its motion over the previous frame, and
+    ``freeze_opacity_and_scale`` holds opacity and scale at their reference
+    values by giving those Adam groups a zero learning rate.
+    """
+
+    enabled: bool
+    num_neighbors: int
+    neighbor_weight_lambda: float
+    lambda_rigid: float
+    lambda_rotation: float
+    lambda_isometry: float
+    lambda_color: float
+    velocity_initialization: bool
+    freeze_opacity_and_scale: bool
+
+
+DEFAULT_DYNAMIC_REGULARIZATION = DynamicRegularizationConfig(
+    enabled=False,
+    num_neighbors=20,
+    neighbor_weight_lambda=2000.0,
+    lambda_rigid=4.0,
+    lambda_rotation=4.0,
+    lambda_isometry=2.0,
+    lambda_color=0.01,
+    velocity_initialization=True,
+    freeze_opacity_and_scale=True,
+)
+
+
+@dataclass(frozen=True)
 class FeatureConfig:
     adaptive_density_control: bool
     opacity_reset: bool
@@ -158,6 +205,9 @@ class Config:
     output: OutputConfig
     features: FeatureConfig
     warm_start: WarmStartConfig = DEFAULT_WARM_START
+    dynamic_regularization: DynamicRegularizationConfig = (
+        DEFAULT_DYNAMIC_REGULARIZATION
+    )
 
 
 _SCHEMA: dict[str, tuple[type[Any], dict[str, object]]] = {
@@ -277,6 +327,20 @@ _OPTIONAL_SCHEMA: dict[str, tuple[type[Any], dict[str, object]]] = {
             "position_lr_mode": str,
             "position_lr_fixed": float,
             "adam_state": str,
+        },
+    ),
+    "dynamic_regularization": (
+        DynamicRegularizationConfig,
+        {
+            "enabled": bool,
+            "num_neighbors": int,
+            "neighbor_weight_lambda": float,
+            "lambda_rigid": float,
+            "lambda_rotation": float,
+            "lambda_isometry": float,
+            "lambda_color": float,
+            "velocity_initialization": bool,
+            "freeze_opacity_and_scale": bool,
         },
     ),
 }
@@ -517,6 +581,29 @@ def _validate_config(config: Config) -> None:
         "warm_start.adam_state must be reset or carry",
     )
 
+    regularization = config.dynamic_regularization
+    _require(
+        regularization.num_neighbors > 0,
+        "dynamic_regularization.num_neighbors must be positive",
+    )
+    _require(
+        math.isfinite(regularization.neighbor_weight_lambda)
+        and regularization.neighbor_weight_lambda >= 0.0,
+        "dynamic_regularization.neighbor_weight_lambda must be non-negative "
+        "and finite",
+    )
+    for field_name in (
+        "lambda_rigid",
+        "lambda_rotation",
+        "lambda_isometry",
+        "lambda_color",
+    ):
+        value = getattr(regularization, field_name)
+        _require(
+            math.isfinite(value) and value >= 0.0,
+            f"dynamic_regularization.{field_name} must be non-negative and finite",
+        )
+
 
 def config_from_mapping(values: Mapping[str, object]) -> Config:
     """Build a :class:`Config` from a complete strict mapping.
@@ -590,6 +677,7 @@ __all__ = [
     "Config",
     "ConfigError",
     "DataConfig",
+    "DynamicRegularizationConfig",
     "FeatureConfig",
     "InitializationConfig",
     "LossConfig",
@@ -600,6 +688,7 @@ __all__ = [
     "TrainingConfig",
     "WarmStartConfig",
     "DEFAULT_WARM_START",
+    "DEFAULT_DYNAMIC_REGULARIZATION",
     "config_from_mapping",
     "load_config",
     "resolve_device",

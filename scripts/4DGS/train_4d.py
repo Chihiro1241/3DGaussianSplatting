@@ -498,6 +498,11 @@ def main(argv: list[str] | None = None) -> int:
             "--position-lr-fixed has no effect with --position-lr-mode exponential"
         )
     carry_adam = config.warm_start.adam_state == "carry"
+    if config.dynamic_regularization.enabled:
+        raise ValueError(
+            f"{args.config} enables dynamic_regularization, which this script "
+            "does not apply; use scripts/4DGS/train_4d_regularized.py"
+        )
 
     frame_directories = discover_frame_directories(
         args.data, pattern=args.frame_pattern, names=args.frames

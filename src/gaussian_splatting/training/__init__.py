@@ -13,7 +13,11 @@ from gaussian_splatting.training.density_control import (
     run_density_control_event,
     split_gaussians,
 )
-from gaussian_splatting.training.losses import LossResult, total_loss
+from gaussian_splatting.training.losses import (
+    LossResult,
+    RegularizationLoss,
+    total_loss,
+)
 from gaussian_splatting.training.optimizer import (
     append_gaussian_parameters,
     create_optimizer,
@@ -46,6 +50,7 @@ from gaussian_splatting.training.trainer import (
 
 __all__ = [
     "LossResult",
+    "RegularizationLoss",
     "GaussianCloneResult",
     "GaussianSnapshotWriter",
     "GaussianDensityControlResult",

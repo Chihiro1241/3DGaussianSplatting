@@ -14,7 +14,7 @@ eval/
 
 ## ツール一覧
 
-**自動**が ● のものは `runs/4DGS_baseline.sh` / `runs/4DGS_warmstart.sh`
+**自動**が ● のものは `runs/4DGS_baseline.sh` / `runs/4DGS_warmstart.sh` / `runs/4DGS_regularized.sh`
 （`make_eval_report.py` は `runs/3DGS.sh` も）が実行する。○ は手で使う。
 
 | ツール | 用途 | 入力 → 出力 | 自動 |

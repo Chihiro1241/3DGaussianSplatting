@@ -7,6 +7,7 @@ import os
 import random
 import shutil
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -28,7 +29,11 @@ from gaussian_splatting.training.density_control import (
     reset_gaussian_opacity,
     run_density_control_event,
 )
-from gaussian_splatting.training.losses import LossResult, total_loss
+from gaussian_splatting.training.losses import (
+    LossResult,
+    RegularizationLoss,
+    total_loss,
+)
 from gaussian_splatting.training.profiling import TrainingProfiler
 from gaussian_splatting.training.schedules import (
     PositionLearningRateScheduler,
@@ -53,6 +58,7 @@ class TrainStepResult:
     render: RenderResult
     density_control_result: GaussianDensityControlResult | None = None
     opacity_reset_result: GaussianOpacityResetResult | None = None
+    regularization: RegularizationLoss | None = None
 
 
 @dataclass(frozen=True)
@@ -151,6 +157,7 @@ class Trainer:
         milestone_iterations: tuple[int, ...] = (),
         stop_iteration: int | None = None,
         snapshot_writer: GaussianSnapshotWriter | None = None,
+        regularizer: Callable[[GaussianModel], RegularizationLoss] | None = None,
     ) -> None:
         if not train_cameras:
             raise ValueError("training camera set must be non-empty")
@@ -213,6 +220,13 @@ class Trainer:
         ):
             raise TypeError("snapshot_writer must be a GaussianSnapshotWriter")
         self.snapshot_writer = snapshot_writer
+        if regularizer is not None and not callable(regularizer):
+            raise TypeError("regularizer must be callable")
+        # An optional prior on the Gaussian parameters themselves, evaluated
+        # once per step and added to the image loss.  The 4D extension uses it
+        # for the Dynamic 3D Gaussians rigidity terms; a static run passes None
+        # and trains exactly as before.
+        self.regularizer = regularizer
         self._started_at = time.monotonic()
         self.training_profiler = (
             TrainingProfiler(
@@ -321,6 +335,26 @@ class Trainer:
             if not torch.isfinite(parameter).all():
                 raise FloatingPointError(f"parameter {name} contains NaN or Inf")
 
+    def _regularization_loss(self) -> RegularizationLoss | None:
+        if self.regularizer is None:
+            return None
+        regularization = self.regularizer(self.model)
+        if not isinstance(regularization, RegularizationLoss):
+            raise TypeError("regularizer must return a RegularizationLoss")
+        if not torch.isfinite(regularization.total):
+            raise FloatingPointError("regularization loss contains NaN or Inf")
+        return regularization
+
+    @staticmethod
+    def _objective(
+        loss: LossResult, regularization: RegularizationLoss | None
+    ) -> Tensor:
+        """Return the scalar that is backpropagated this step."""
+
+        if regularization is None:
+            return loss.total
+        return loss.total + regularization.total
+
     def train_step(self, camera: Camera, iteration: int) -> TrainStepResult:
         """Perform rendering, loss, autograd, and one Adam update."""
 
@@ -358,7 +392,8 @@ class Trainer:
                 k1=self.config.loss.ssim_k1,
                 k2=self.config.loss.ssim_k2,
             )
-            loss.total.backward()
+            regularization = self._regularization_loss()
+            self._objective(loss, regularization).backward()
         else:
             with profile_timer.measure("loss"):
                 loss = total_loss(
@@ -370,8 +405,9 @@ class Trainer:
                     k1=self.config.loss.ssim_k1,
                     k2=self.config.loss.ssim_k2,
                 )
+                regularization = self._regularization_loss()
             with profile_timer.measure("backward"):
-                loss.total.backward()
+                self._objective(loss, regularization).backward()
         self._assert_finite_gradients()
         if decision.collect_statistics:
             if self.density_statistics is None:  # pragma: no cover - constructor
@@ -452,6 +488,7 @@ class Trainer:
             render=render,
             density_control_result=density_control_result,
             opacity_reset_result=opacity_reset_result,
+            regularization=regularization,
         )
 
     def validate(self, iteration: int) -> EvaluationResult:
@@ -583,6 +620,18 @@ class Trainer:
             "visible_gaussian_count": int(result.render.visible_mask.sum().item()),
             "elapsed_seconds": time.monotonic() - self._started_at,
         }
+        if result.regularization is not None:
+            # ``loss_total`` stays the image loss alone, so that it remains
+            # comparable with runs that have no regularizer.
+            record["loss_regularization"] = float(
+                result.regularization.total.detach().item()
+            )
+            record.update(
+                {
+                    f"loss_reg_{name}": float(value.detach().item())
+                    for name, value in result.regularization.terms.items()
+                }
+            )
         if self._model_device.type == "cuda":
             record.update(
                 {

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 
 import torch
 import torch.nn.functional as F
@@ -214,3 +215,17 @@ def total_loss(
         raise FloatingPointError("total loss contains NaN or Inf")
     return LossResult(total=total_value, l1=l1_value, dssim=dssim_value, ssim=ssim_value)
 
+
+
+@dataclass(frozen=True)
+class RegularizationLoss:
+    """A weighted parameter-space prior added to the reconstruction loss.
+
+    ``total`` is the already weighted sum that enters the objective.  ``terms``
+    holds each unweighted component for logging, keyed by a short name such as
+    ``"rigid"``.  The static trainer knows nothing about what the terms mean;
+    it only adds ``total`` before backpropagation and records every term.
+    """
+
+    total: Tensor
+    terms: Mapping[str, Tensor] = field(default_factory=dict)
